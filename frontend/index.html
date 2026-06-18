@@ -1,0 +1,1845 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistem Deteksi Parkir Liar Real-time</title>
+    <!-- Google Fonts: Outfit -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <style>
+        :root {
+            --bg-gradient: radial-gradient(circle at 50% 0%, #1e293b 0%, #0f172a 50%, #020617 100%);
+            --glass-bg: rgba(15, 23, 42, 0.45);
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --glass-border-hover: rgba(255, 255, 255, 0.15);
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            
+            --primary: #4f46e5;
+            --primary-glow: rgba(79, 70, 229, 0.4);
+            --primary-hover: #6366f1;
+            
+            --success: #10b981;
+            --success-glow: rgba(16, 185, 129, 0.25);
+            --warning: #f59e0b;
+            --warning-glow: rgba(245, 158, 11, 0.25);
+            --danger: #ef4444;
+            --danger-glow: rgba(239, 68, 68, 0.45);
+            
+            --font-family: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: var(--font-family);
+            background: var(--bg-gradient);
+            background-attachment: fixed;
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+            line-height: 1.5;
+        }
+
+        /* Scrollbar styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.2);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        /* Layout Container */
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        /* Header Card */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--glass-bg);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            padding: 1.5rem 2rem;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+            animation: fadeInDown 0.6s ease-out;
+        }
+
+        .header-title-section h1 {
+            font-size: 1.8rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #f8fafc 0%, #cbd5e1 50%, #94a3b8 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.02em;
+        }
+
+        .header-title-section p {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            margin-top: 0.25rem;
+        }
+
+        .system-badge-container {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .badge-status {
+            padding: 0.5rem 1rem;
+            border-radius: 9999px;
+            font-weight: 600;
+            font-size: 0.85rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            border: 1px solid transparent;
+            transition: var(--transition);
+        }
+
+        .badge-status.running {
+            background: var(--success-glow);
+            color: #34d399;
+            border-color: rgba(16, 185, 129, 0.2);
+            box-shadow: 0 0 15px rgba(16, 185, 129, 0.15);
+        }
+
+        .badge-status.stopped {
+            background: rgba(239, 68, 68, 0.1);
+            color: #f87171;
+            border-color: rgba(239, 68, 68, 0.2);
+        }
+
+        .badge-status .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        
+        .badge-status.running .dot {
+            background-color: var(--success);
+            animation: pulse 1.5s infinite;
+        }
+
+        .badge-status.stopped .dot {
+            background-color: var(--danger);
+        }
+
+        /* Alert Notification Banner */
+        #alert-banner {
+            display: none;
+            background: linear-gradient(90deg, #7f1d1d 0%, #b91c1c 100%);
+            border: 1px solid rgba(239, 68, 68, 0.4);
+            border-radius: 16px;
+            padding: 1rem 1.5rem;
+            font-weight: 700;
+            font-size: 1.05rem;
+            color: #fee2e2;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 10px 25px rgba(239, 68, 68, 0.25);
+            animation: pulse-border 2s infinite, fadeInUp 0.5s ease-out;
+        }
+
+        #alert-banner .alert-text {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        #alert-banner .alert-icon {
+            font-size: 1.4rem;
+            animation: shake 1s infinite;
+        }
+
+        /* Main Dashboard Grid */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 2.2fr 1fr;
+            gap: 1.5rem;
+        }
+
+        @media (max-width: 1200px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Cards styling */
+        .card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            padding: 1.5rem;
+            box-shadow: 0 12px 36px rgba(0, 0, 0, 0.2);
+            transition: var(--transition);
+        }
+
+        .card:hover {
+            border-color: var(--glass-border-hover);
+            box-shadow: 0 16px 48px rgba(0, 0, 0, 0.25);
+        }
+
+        .card-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-bottom: 1.25rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            color: var(--text-primary);
+        }
+
+        /* Video feed wrapper */
+        .video-container {
+            position: relative;
+            width: 100%;
+            background: #020617;
+            border-radius: 16px;
+            overflow: hidden;
+            aspect-ratio: 16/9;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .video-feed {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: block;
+        }
+
+        .video-placeholder {
+            position: absolute;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1rem;
+            color: var(--text-secondary);
+            text-align: center;
+            padding: 2rem;
+        }
+
+        .video-placeholder svg {
+            width: 64px;
+            height: 64px;
+            fill: currentColor;
+            opacity: 0.3;
+        }
+
+        /* Control and Config Forms */
+        .form-group {
+            margin-bottom: 1.25rem;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .form-input {
+            width: 100%;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            padding: 0.75rem 1rem;
+            color: var(--text-primary);
+            font-family: var(--font-family);
+            font-size: 0.95rem;
+            transition: var(--transition);
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 10px var(--primary-glow);
+            background: rgba(0, 0, 0, 0.4);
+        }
+
+        .form-textarea {
+            resize: vertical;
+            min-height: 120px;
+            font-family: monospace;
+            font-size: 0.85rem;
+        }
+
+        /* Buttons styling */
+        .btn-group {
+            display: flex;
+            gap: 0.75rem;
+            margin-top: 1rem;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            font-family: var(--font-family);
+            font-weight: 600;
+            font-size: 0.9rem;
+            padding: 0.75rem 1.25rem;
+            border-radius: 12px;
+            border: 1px solid transparent;
+            cursor: pointer;
+            transition: var(--transition);
+            width: 100%;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: #ffffff;
+            box-shadow: 0 4px 12px var(--primary-glow);
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-hover);
+            box-shadow: 0 6px 16px var(--primary-glow);
+            transform: translateY(-1px);
+        }
+
+        .btn-success {
+            background: var(--success);
+            color: #ffffff;
+            box-shadow: 0 4px 12px var(--success-glow);
+        }
+
+        .btn-success:hover {
+            background: #059669;
+            transform: translateY(-1px);
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            color: #ffffff;
+            box-shadow: 0 4px 12px var(--danger-glow);
+        }
+
+        .btn-danger:hover {
+            background: #dc2626;
+            transform: translateY(-1px);
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: var(--glass-border);
+            color: var(--text-primary);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.15);
+            border-color: var(--glass-border-hover);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none !important;
+            box-shadow: none !important;
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .stat-card {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            padding: 1rem;
+            text-align: center;
+            transition: var(--transition);
+        }
+
+        .stat-card:hover {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: var(--glass-border-hover);
+        }
+
+        .stat-label {
+            font-size: 0.8rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+            margin-bottom: 0.25rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .stat-value {
+            font-size: 1.75rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .stat-card.active-alert {
+            border-color: rgba(239, 68, 68, 0.3);
+            background: rgba(239, 68, 68, 0.05);
+        }
+        
+        .stat-card.active-alert .stat-value {
+            color: var(--danger);
+        }
+
+        .stat-card.stationary-val {
+            border-color: rgba(245, 158, 11, 0.3);
+            background: rgba(245, 158, 11, 0.05);
+        }
+        .stat-card.stationary-val .stat-value {
+            color: var(--warning);
+        }
+
+        .stat-card.tracked-val .stat-value {
+            color: var(--success);
+        }
+
+        /* Collapsible Section */
+        .collapsible {
+            border-radius: 16px;
+            border: 1px solid var(--glass-border);
+            background: rgba(255, 255, 255, 0.02);
+            overflow: hidden;
+            margin-top: 1rem;
+        }
+
+        .collapsible-header {
+            padding: 1rem;
+            background: rgba(255, 255, 255, 0.03);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-weight: 600;
+            font-size: 0.95rem;
+            user-select: none;
+            transition: var(--transition);
+        }
+
+        .collapsible-header:hover {
+            background: rgba(255, 255, 255, 0.06);
+        }
+
+        .collapsible-header::after {
+            content: '▼';
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            transition: transform 0.3s ease;
+        }
+
+        .collapsible.active .collapsible-header::after {
+            transform: rotate(180deg);
+        }
+
+        .collapsible-content {
+            padding: 0;
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .collapsible.active .collapsible-content {
+            padding: 1rem;
+            max-height: 500px;
+            border-top: 1px solid var(--glass-border);
+        }
+
+        /* Violations Log Section */
+        .logs-section {
+            grid-column: 1 / -1;
+        }
+
+        .table-container {
+            width: 100%;
+            overflow-x: auto;
+            border-radius: 16px;
+            border: 1px solid var(--glass-border);
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+            font-size: 0.9rem;
+        }
+
+        th {
+            background: rgba(255, 255, 255, 0.04);
+            padding: 0.85rem 1rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            border-bottom: 1px solid var(--glass-border);
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 0.05em;
+        }
+
+        td {
+            padding: 0.85rem 1rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+            color: var(--text-primary);
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr:hover td {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .badge-vehicle {
+            background: rgba(255, 255, 255, 0.08);
+            padding: 0.25rem 0.6rem;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            font-weight: 500;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .badge-zone {
+            padding: 0.25rem 0.6rem;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            font-weight: 500;
+            border: 1px solid transparent;
+        }
+
+        .badge-zone.left {
+            background: rgba(239, 68, 68, 0.15);
+            color: #fca5a5;
+            border-color: rgba(239, 68, 68, 0.2);
+        }
+
+        .badge-zone.right {
+            background: rgba(59, 130, 246, 0.15);
+            color: #93c5fd;
+            border-color: rgba(59, 130, 246, 0.2);
+        }
+
+        .btn-view-ss {
+            background: var(--primary-glow);
+            color: var(--primary-hover);
+            border: 1px solid rgba(79, 70, 229, 0.3);
+            padding: 0.35rem 0.75rem;
+            border-radius: 8px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+
+        .btn-view-ss:hover {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+            box-shadow: 0 0 10px rgba(79, 70, 229, 0.4);
+        }
+
+        .empty-logs {
+            text-align: center;
+            color: var(--text-secondary);
+            padding: 3rem 1rem;
+            font-style: italic;
+        }
+
+        /* Screenshot Modal Box */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(2, 6, 17, 0.85);
+            backdrop-filter: blur(8px);
+            justify-content: center;
+            align-items: center;
+            animation: fadeIn 0.3s ease-out;
+        }
+
+        .modal-content {
+            background: #0f172a;
+            border: 1px solid var(--glass-border-hover);
+            border-radius: 24px;
+            padding: 1.5rem;
+            max-width: 900px;
+            width: 90%;
+            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            animation: scaleIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+            position: relative;
+        }
+
+        .modal-close {
+            position: absolute;
+            top: 1rem;
+            right: 1.5rem;
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: var(--transition);
+        }
+
+        .modal-close:hover {
+            color: var(--text-primary);
+        }
+
+        .modal-header {
+            font-size: 1.25rem;
+            font-weight: 700;
+            padding-right: 2rem;
+        }
+
+        .modal-body img {
+            width: 100%;
+            height: auto;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            display: block;
+        }
+
+        .modal-footer {
+            display: flex;
+            justify-content: space-between;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            padding-top: 0.75rem;
+        }
+
+        /* Animations */
+        @keyframes fadeInDown {
+            from {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes scaleIn {
+            from {
+                opacity: 0;
+                transform: scale(0.9);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+
+        @keyframes pulse {
+            0% {
+                transform: scale(1);
+                box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+            }
+            70% {
+                transform: scale(1.1);
+                box-shadow: 0 0 0 8px rgba(16, 185, 129, 0);
+            }
+            100% {
+                transform: scale(1);
+                box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+            }
+        }
+
+        @keyframes pulse-border {
+            0% { border-color: rgba(239, 68, 68, 0.4); }
+            50% { border-color: rgba(239, 68, 68, 0.85); }
+            100% { border-color: rgba(239, 68, 68, 0.4); }
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: rotate(0deg); }
+            20%, 60% { transform: rotate(-8deg); }
+            40%, 80% { transform: rotate(8deg); }
+        }
+
+        /* Tabs Styling */
+        .tabs-container {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 0.5rem;
+            animation: fadeInDown 0.6s ease-out;
+        }
+
+        .tab-btn {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            padding: 0.75rem 1.5rem;
+            color: var(--text-secondary);
+            font-family: var(--font-family);
+            font-weight: 600;
+            font-size: 0.95rem;
+            cursor: pointer;
+            transition: var(--transition);
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        .tab-btn:hover {
+            border-color: var(--glass-border-hover);
+            color: var(--text-primary);
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .tab-btn.active {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: #ffffff;
+            box-shadow: 0 4px 15px var(--primary-glow);
+        }
+
+        .tab-page {
+            display: none;
+            animation: fadeIn 0.4s ease-out;
+        }
+
+        .tab-page.active {
+            display: block;
+        }
+
+        /* Analytics Tab Specifics */
+        .analytics-summary-cards {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .analytics-charts-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        @media (max-width: 900px) {
+            .analytics-charts-grid {
+                grid-template-columns: 1fr;
+            }
+            .analytics-summary-cards {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .chart-card {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            padding: 1.5rem;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            transition: var(--transition);
+        }
+
+        .chart-card:hover {
+            border-color: var(--glass-border-hover);
+            box-shadow: 0 12px 36px rgba(0, 0, 0, 0.25);
+        }
+
+        .chart-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: var(--text-primary);
+        }
+
+        /* Badge values */
+        .badge-priority {
+            padding: 0.25rem 0.6rem;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            border: 1px solid transparent;
+            display: inline-block;
+        }
+
+        .badge-priority.RENDAH {
+            background: rgba(16, 185, 129, 0.15);
+            color: #34d399;
+            border-color: rgba(16, 185, 129, 0.2);
+        }
+
+        .badge-priority.SEDANG {
+            background: rgba(245, 158, 11, 0.15);
+            color: #fbbf24;
+            border-color: rgba(245, 158, 11, 0.2);
+        }
+
+        .badge-priority.TINGGI {
+            background: rgba(239, 68, 68, 0.15);
+            color: #f87171;
+            border-color: rgba(239, 68, 68, 0.2);
+            animation: pulse-border 2s infinite;
+        }
+
+        .badge-impact {
+            padding: 0.25rem 0.6rem;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            display: inline-block;
+        }
+
+        .badge-impact.LOW {
+            background: rgba(16, 185, 129, 0.15);
+            color: #34d399;
+        }
+
+        .badge-impact.MEDIUM {
+            background: rgba(245, 158, 11, 0.15);
+            color: #fbbf24;
+        }
+
+        .badge-impact.HIGH {
+            background: rgba(239, 68, 68, 0.15);
+            color: #f87171;
+        }
+
+        /* Validation Tab Specifics */
+        .sop-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1.5rem;
+            animation: fadeInUp 0.6s ease-out;
+        }
+
+        @media (max-width: 800px) {
+            .sop-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .sop-card {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            padding: 1.75rem;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            transition: var(--transition);
+        }
+
+        .sop-card:hover {
+            border-color: var(--glass-border-hover);
+            transform: translateY(-2px);
+            box-shadow: 0 14px 40px rgba(0, 0, 0, 0.25);
+        }
+
+        .sop-card-header {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            padding-bottom: 0.75rem;
+        }
+
+        .sop-icon {
+            font-size: 1.8rem;
+            background: var(--primary-glow);
+            padding: 0.5rem;
+            border-radius: 12px;
+            display: inline-flex;
+            justify-content: center;
+            align-items: center;
+            width: 45px;
+            height: 45px;
+            color: var(--primary-hover);
+        }
+
+        .sop-card-title {
+            font-size: 1.15rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .sop-card-body p {
+            font-size: 0.95rem;
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+
+        .sop-badge {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 6px;
+            font-size: 0.8rem;
+            font-weight: 500;
+            color: var(--text-primary);
+            margin-top: 0.5rem;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        
+        <!-- Header -->
+        <header>
+            <div class="header-title-section">
+                <h1>Sistem Deteksi Parkir Liar Real-time</h1>
+                <p>Live Monitoring & Analisis Kendaraan Diam berbasis YOLOv8 + ByteTrack + OpenCV</p>
+            </div>
+            <div class="system-badge-container">
+                <div id="system-status" class="badge-status stopped">
+                    <span class="dot"></span>
+                    <span id="status-text">Memuat...</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Tabs Bar -->
+        <div class="tabs-container">
+            <button class="tab-btn active" id="btn-tab-live" onclick="switchTab('live')">
+                <svg style="width:18px;height:18px;fill:currentColor;" viewBox="0 0 24 24"><path d="M21 3H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H3V5h18v14zM8 15c.55 0 1-.45 1-1v-4c0-.55-.45-1-1-1s-1 .45-1 1v4c0 .55.45 1 1 1zm4 0c.55 0 1-.45 1-1V8c0-.55-.45-1-1-1s-1 .45-1 1v6c0 .55.45 1 1 1zm4 0c.55 0 1-.45 1-1v-2c0-.55-.45-1-1-1s-1 .45-1 1v2c0 .55.45 1 1 1z"/></svg>
+                Monitoring Real-time
+            </button>
+            <button class="tab-btn" id="btn-tab-analytics" onclick="switchTab('analytics')">
+                <svg style="width:18px;height:18px;fill:currentColor;" viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-8 14H9v-5h2v5zm4 0h-2v-8h2v8zm4 0h-2v-3h2v3z"/></svg>
+                Big Data & Spark Analytics
+            </button>
+            <button class="tab-btn" id="btn-tab-validation" onclick="switchTab('validation')">
+                <svg style="width:18px;height:18px;fill:currentColor;" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+                Mekanisme Validasi Sistem
+            </button>
+        </div>
+
+        <div id="tab-live" class="tab-page active">
+            <!-- Danger Alert Banner -->
+            <div id="alert-banner">
+            <div class="alert-text">
+                <span class="alert-icon">⚠️</span>
+                <span><strong>PERINGATAN:</strong> Kendaraan terdeteksi melakukan parkir liar (berhenti lebih dari 15 menit) di area larangan parkir!</span>
+            </div>
+        </div>
+
+        <!-- Main Dashboard Grid -->
+        <div class="dashboard-grid">
+            
+            <!-- Left Side: Video Feed -->
+            <div class="card" style="display: flex; flex-direction: column;">
+                <div class="card-title">
+                    <span>Live CCTV Annotated Video Feed</span>
+                    <span id="stream-backend-badge" class="badge-vehicle" style="font-size: 0.75rem; text-transform: uppercase;">Mencari Source...</span>
+                </div>
+                <div class="video-container">
+                    <div id="video-placeholder" class="video-placeholder">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4zM14 13h-3v3H9v-3H6v-2h3V8h2v3h3v2z"/>
+                        </svg>
+                        <p id="placeholder-text">Sistem dimatikan atau stream terputus.<br>Klik "Mulai Deteksi" untuk mengaktifkan pemantauan.</p>
+                    </div>
+                    <img id="video-stream" class="video-feed" style="display: none;" alt="Video CCTV Feed">
+                </div>
+            </div>
+
+            <!-- Right Side: Stats & Config -->
+            <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+                
+                <!-- System Stats -->
+                <div class="card">
+                    <div class="card-title">Statistik Real-time</div>
+                    
+                    <div class="stats-grid">
+                        <div class="stat-card tracked-val">
+                            <div class="stat-label">Total Dipantau</div>
+                            <div id="stat-tracked" class="stat-value">0</div>
+                        </div>
+                        <div id="stationary-card" class="stat-card">
+                            <div class="stat-label">Sedang Diam</div>
+                            <div id="stat-stationary" class="stat-value">0</div>
+                        </div>
+                        <div id="violations-card" class="stat-card">
+                            <div class="stat-label">Pelanggaran</div>
+                            <div id="stat-violations" class="stat-value">0</div>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.9rem; color: var(--text-secondary); background: rgba(0, 0, 0, 0.15); padding: 1rem; border-radius: 12px; border: 1px solid var(--glass-border);">
+                        <div style="display: flex; justify-content: space-between;">
+                            <span>Kendaraan Bergerak:</span>
+                            <strong id="stat-moving" style="color: var(--text-primary);">0</strong>
+                        </div>
+                        <div style="display: flex; justify-content: space-between;">
+                            <span>Zona Kustom Aktif:</span>
+                            <strong id="stat-custom-zones" style="color: var(--text-primary);">-</strong>
+                        </div>
+                        <div style="display: flex; justify-content: space-between;">
+                            <span>Status Alarm:</span>
+                            <strong id="stat-alarm" style="color: var(--text-primary);">-</strong>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Controls -->
+                <div class="card">
+                    <div class="card-title">Kontrol & Konfigurasi</div>
+                    
+                    <div class="form-group">
+                        <label class="form-label" for="input-stream-url">URL Stream HLS (.m3u8)</label>
+                        <input type="text" id="input-stream-url" class="form-input" placeholder="Masukkan URL streaming m3u8">
+                    </div>
+
+                    <div class="btn-group">
+                        <button id="btn-start" class="btn btn-success">
+                            <svg style="width:16px;height:16px;fill:currentColor;" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                            Mulai Deteksi
+                        </button>
+                        <button id="btn-stop" class="btn btn-danger">
+                            <svg style="width:16px;height:16px;fill:currentColor;" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                            Hentikan
+                        </button>
+                    </div>
+
+                    <div class="btn-group">
+                        <button id="btn-update-url" class="btn btn-secondary">Update URL & Restart</button>
+                    </div>
+
+                    <!-- Collapsible Zones Editor -->
+                    <div id="collapsible-zones" class="collapsible">
+                        <div class="collapsible-header" id="zones-editor-header">Editor Zona Polygon (Custom)</div>
+                        <div class="collapsible-content">
+                            <div class="form-group" style="margin-bottom: 0.75rem;">
+                                <textarea id="textarea-zones" class="form-input form-textarea" spellcheck="false"></textarea>
+                            </div>
+                            <div style="display: flex; gap: 0.5rem;">
+                                <button id="btn-save-zones" class="btn btn-primary" style="padding: 0.5rem 1rem; font-size: 0.85rem;">Simpan Zona</button>
+                                <button id="btn-reset-zones" class="btn btn-secondary" style="padding: 0.5rem 1rem; font-size: 0.85rem;">Reset Default</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Bottom: Violations Log -->
+            <div class="card logs-section">
+                <div class="card-title">Log Pelanggaran Parkir Liar (Hari Ini)</div>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Waktu Pelanggaran</th>
+                                <th>Waktu Masuk</th>
+                                <th>Durasi Diam</th>
+                                <th>Jenis Kendaraan</th>
+                                <th>Track ID</th>
+                                <th>Zona</th>
+                                <th>Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody id="logs-table-body">
+                            <tr>
+                                <td colspan="7" class="empty-logs">Memuat data log...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+        </div>
+        <!-- End tab-live -->
+
+        <!-- TAB 2: BIG DATA & SPARK ANALYTICS -->
+        <div id="tab-analytics" class="tab-page">
+            <!-- Summary metrics -->
+            <div class="analytics-summary-cards">
+                <div class="card" style="text-align: center; display: flex; flex-direction: column; justify-content: center; min-height: 120px;">
+                    <div style="font-size: 0.85rem; color: var(--text-secondary); text-transform: uppercase; font-weight: 600;">Durasi Rata-rata Pelanggaran</div>
+                    <div id="anal-avg-duration" style="font-size: 2rem; font-weight: 800; color: var(--danger); margin-top: 0.5rem;">-</div>
+                    <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.25rem;">Rata-rata waktu kendaraan parkir liar</div>
+                </div>
+                <div class="card" style="text-align: center; display: flex; flex-direction: column; justify-content: center; min-height: 120px;">
+                    <div style="font-size: 0.85rem; color: var(--text-secondary); text-transform: uppercase; font-weight: 600;">Jam Rawan Parkir Liar</div>
+                    <div id="anal-peak-hour" style="font-size: 2rem; font-weight: 800; color: var(--warning); margin-top: 0.5rem;">-</div>
+                    <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.25rem;">Waktu puncak pelanggaran terdeteksi</div>
+                </div>
+                <div class="card" style="text-align: center; display: flex; flex-direction: column; justify-content: center; min-height: 120px;">
+                    <div style="font-size: 0.85rem; color: var(--text-secondary); text-transform: uppercase; font-weight: 600;">Ruas Jalan Paling Rawan</div>
+                    <div id="anal-worst-zone" style="font-size: 2rem; font-weight: 800; color: #818cf8; margin-top: 0.5rem;">-</div>
+                    <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.25rem;">Sisi jalan dengan tingkat pelanggaran tertinggi</div>
+                </div>
+            </div>
+
+            <!-- Charts grid -->
+            <div class="analytics-charts-grid">
+                <div class="chart-card">
+                    <div class="chart-title" style="display:flex; justify-content:space-between; align-items:center;">
+                        <span>Tren Pelanggaran Harian</span>
+                        <span id="spark-badge" class="badge-vehicle" style="font-size:0.75rem; text-transform: uppercase;">Engine: -</span>
+                    </div>
+                    <div style="position: relative; height: 320px; width: 100%;">
+                        <canvas id="trendChart"></canvas>
+                    </div>
+                </div>
+                <div class="chart-card">
+                    <div class="chart-title">Distribusi Pelanggaran Per Jam (Peak Hours)</div>
+                    <div style="position: relative; height: 320px; width: 100%;">
+                        <canvas id="hourlyChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Analytics table per road segment -->
+            <div class="card" style="margin-top: 1.5rem;">
+                <div class="card-title">Analisis Tingkat Pelanggaran & Estimasi Dampak Kemacetan Per Ruas Jalan</div>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Ruas Jalan (Zona)</th>
+                                <th>Jumlah Pelanggaran</th>
+                                <th>Durasi Rata-rata</th>
+                                <th>Illegal Parking Index (0-10)</th>
+                                <th>Estimasi Dampak Kemacetan</th>
+                                <th>Rekomendasi Kebijakan & Penertiban</th>
+                            </tr>
+                        </thead>
+                        <tbody id="analytics-table-body">
+                            <tr>
+                                <td colspan="6" style="text-align: center; color: var(--text-secondary); padding: 2rem;">Memproses analitik data...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 3: VALIDATION AND ACCURACY SOP -->
+        <div id="tab-validation" class="tab-page">
+            <div style="margin-bottom: 2rem; text-align: center; margin-top: 0.5rem;">
+                <h2 style="font-size: 1.75rem; font-weight: 800; color: var(--text-primary); letter-spacing: -0.02em;">Mekanisme Validitas Deteksi Sistem</h2>
+                <p style="color: var(--text-secondary); font-size: 0.95rem; margin-top: 0.5rem;">Penjelasan logis bagaimana sistem membedakan parkir liar dengan antrean lalu lintas, lampu merah, atau aktivitas menaikkan/menurunkan penumpang.</p>
+            </div>
+            
+            <div class="sop-grid">
+                <!-- Point 1 -->
+                <div class="sop-card">
+                    <div class="sop-card-header">
+                        <div class="sop-icon">🗺️</div>
+                        <div class="sop-card-title">Polygon Geofencing (Zona Larangan Parkir)</div>
+                    </div>
+                    <div class="sop-card-body">
+                        <p style="color: var(--text-secondary); font-size: 0.95rem; line-height: 1.6;">
+                            Sistem melakukan deteksi secara terisolasi hanya pada area batas (polygon) kustom yang telah diatur oleh operator, mencakup bahu jalan, trotoar, atau area terlarang khusus.
+                        </p>
+                        <p style="margin-top: 0.75rem; color: var(--text-primary); font-size: 0.95rem; line-height: 1.6;">
+                            👉 <strong>Cara Kerja:</strong> Lajur jalan utama (lalu lintas mengalir) tempat kendaraan berhenti mengantre karena lampu merah atau kemacetan padat berada <strong>di luar area polygon deteksi</strong>. Kendaraan di lajur utama tidak akan dideteksi atau dihitung sebagai pelanggaran.
+                        </p>
+                        <span class="sop-badge">Validasi Spasial (Tata Ruang Jalan)</span>
+                    </div>
+                </div>
+
+                <!-- Point 2 -->
+                <div class="sop-card">
+                    <div class="sop-card-header">
+                        <div class="sop-icon">⏱️</div>
+                        <div class="sop-card-title">Grace Period (Threshold Durasi Diam)</div>
+                    </div>
+                    <div class="sop-card-body">
+                        <p style="color: var(--text-secondary); font-size: 0.95rem; line-height: 1.6;">
+                            Sistem mencatat lama waktu berhenti secara real-time. Pelanggaran tidak langsung dipicu begitu kendaraan berhenti, melainkan harus melampaui batas toleransi waktu minimum (grace period).
+                        </p>
+                        <p style="margin-top: 0.75rem; color: var(--text-primary); font-size: 0.95rem; line-height: 1.6;">
+                            👉 <strong>Cara Kerja:</strong> Batas waktu deteksi disetel secara dinamis (misalnya 2 menit untuk demo, 15 menit untuk penertiban riil). Kendaraan yang berhenti sementara untuk menaikkan/menurunkan penumpang (<i>drop-off</i>) atau antre lampu merah (< 2 menit) tidak memicu pelanggaran.
+                        </p>
+                        <span class="sop-badge">Validasi Durasi (Filter Stop-and-Go)</span>
+                    </div>
+                </div>
+
+                <!-- Point 3 -->
+                <div class="sop-card">
+                    <div class="sop-card-header">
+                        <div class="sop-icon">🏎️</div>
+                        <div class="sop-card-title">Pelacakan Vektor & Kecepatan (ByteTrack)</div>
+                    </div>
+                    <div class="sop-card-body">
+                        <p style="color: var(--text-secondary); font-size: 0.95rem; line-height: 1.6;">
+                            Melalui integrasi pelacak multi-objek ByteTrack, setiap kendaraan yang melintas diberikan Track ID unik dan dipantau pergeseran titik koordinat pusat massanya (centroid).
+                        </p>
+                        <p style="margin-top: 0.75rem; color: var(--text-primary); font-size: 0.95rem; line-height: 1.6;">
+                            👉 <strong>Cara Kerja:</strong> Sistem menghitung kecepatan pergerakan kendaraan di setiap frame. Saat lalu lintas padat merayap (<i>congestion</i>), kendaraan tetap terdeteksi bergerak (kecepatan > threshold), sehingga statusnya tetap dianggap bergerak dan tidak memicu timer diam.
+                        </p>
+                        <span class="sop-badge">Validasi Kecepatan Dinamis (ByteTrack)</span>
+                    </div>
+                </div>
+
+                <!-- Point 4 -->
+                <div class="sop-card">
+                    <div class="sop-card-header">
+                        <div class="sop-icon">🧠</div>
+                        <div class="sop-card-title">Filter Klasifikasi Objek AI (YOLOv8)</div>
+                    </div>
+                    <div class="sop-card-body">
+                        <p style="color: var(--text-secondary); font-size: 0.95rem; line-height: 1.6;">
+                            Model kecerdasan buatan YOLOv8 dilatih untuk mengidentifikasi dan memilah objek berdasarkan klasifikasinya secara presisi tinggi.
+                        </p>
+                        <p style="margin-top: 0.75rem; color: var(--text-primary); font-size: 0.95rem; line-height: 1.6;">
+                            👉 <strong>Cara Kerja:</strong> Deteksi parkir liar dibatasi hanya untuk kelas kendaraan bermotor (seperti mobil, motor, bus, truk). Pejalan kaki yang sedang mengobrol di trotoar atau bayangan bergerak tidak akan memicu alarm palsu (false positive).
+                        </p>
+                        <span class="sop-badge">Klasifikasi AI YOLOv8</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Screenshot Modal -->
+    <div id="ss-modal" class="modal">
+        <div class="modal-content">
+            <span id="modal-close-btn" class="modal-close">&times;</span>
+            <div class="modal-header" id="modal-title">Bukti Pelanggaran Parkir Liar</div>
+            <div class="modal-body">
+                <img id="modal-img" src="" alt="Screenshot Pelanggaran">
+            </div>
+            <div class="modal-footer">
+                <span id="modal-meta-left">ID Kendaraan: - | Jenis: -</span>
+                <span id="modal-meta-right">Durasi: -</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // DOM Elements
+        const elStatusBadge = document.getElementById('system-status');
+        const elStatusText = document.getElementById('status-text');
+        const elAlertBanner = document.getElementById('alert-banner');
+        const elStreamBackendBadge = document.getElementById('stream-backend-badge');
+        
+        const elVideoPlaceholder = document.getElementById('video-placeholder');
+        const elVideoFeed = document.getElementById('video-stream');
+        
+        const elStatTracked = document.getElementById('stat-tracked');
+        const elStatStationary = document.getElementById('stat-stationary');
+        const elStatViolations = document.getElementById('stat-violations');
+        const elStatMoving = document.getElementById('stat-moving');
+        const elStatCustomZones = document.getElementById('stat-custom-zones');
+        const elStatAlarm = document.getElementById('stat-alarm');
+        
+        const elStationaryCard = document.getElementById('stationary-card');
+        const elViolationsCard = document.getElementById('violations-card');
+        
+        const elInputStreamUrl = document.getElementById('input-stream-url');
+        const elBtnStart = document.getElementById('btn-start');
+        const elBtnStop = document.getElementById('btn-stop');
+        const elBtnUpdateUrl = document.getElementById('btn-update-url');
+        
+        const elCollapsibleZones = document.getElementById('collapsible-zones');
+        const elZonesHeader = document.getElementById('zones-editor-header');
+        const elTextareaZones = document.getElementById('textarea-zones');
+        const elBtnSaveZones = document.getElementById('btn-save-zones');
+        const elBtnResetZones = document.getElementById('btn-reset-zones');
+        
+        const elLogsTableBody = document.getElementById('logs-table-body');
+        
+        const elModal = document.getElementById('ss-modal');
+        const elModalCloseBtn = document.getElementById('modal-close-btn');
+        const elModalImg = document.getElementById('modal-img');
+        const elModalTitle = document.getElementById('modal-title');
+        const elModalMetaLeft = document.getElementById('modal-meta-left');
+        const elModalMetaRight = document.getElementById('modal-meta-right');
+
+        let isRunning = false;
+        let activeStreamUrl = '';
+        let lastAlert = null;
+        let snapshotInterval = null;
+
+        // Init App
+        window.addEventListener('DOMContentLoaded', () => {
+            // Setup collapsible editor
+            elZonesHeader.addEventListener('click', () => {
+                elCollapsibleZones.classList.toggle('active');
+            });
+
+            // Modal Close Events
+            elModalCloseBtn.addEventListener('click', closeModal);
+            window.addEventListener('click', (e) => {
+                if (e.target === elModal) closeModal();
+            });
+
+            // Buttons Events
+            elBtnStart.addEventListener('click', () => controlSystem('start'));
+            elBtnStop.addEventListener('click', () => controlSystem('stop'));
+            elBtnUpdateUrl.addEventListener('click', updateStreamUrl);
+            elBtnSaveZones.addEventListener('click', saveZones);
+            elBtnResetZones.addEventListener('click', resetZones);
+
+            // First snapshot and analytics fetch
+            fetchSnapshot();
+            fetchAnalytics();
+            // Start polling every 1.5 seconds
+            snapshotInterval = setInterval(fetchSnapshot, 1500);
+        });
+
+        // Fetch snapshot from FastAPI API
+        async function fetchSnapshot() {
+            try {
+                const response = await fetch('/api/snapshot');
+                if (!response.ok) throw new Error('Network error fetching snapshot');
+                const data = await response.json();
+                
+                // Update running states
+                isRunning = data.status === 'running';
+                activeStreamUrl = data.active_stream_url;
+                
+                // Status Badge
+                if (data.status === 'running') {
+                    elStatusBadge.removeAttribute('style');
+                    elStatusBadge.className = 'badge-status running';
+                    elStatusText.textContent = 'MONITORING AKTIF';
+                    elBtnStart.disabled = true;
+                    elBtnStop.disabled = false;
+                    
+                    // Show video feed image
+                    if (elVideoFeed.style.display === 'none') {
+                        elVideoPlaceholder.style.display = 'none';
+                        elVideoFeed.style.display = 'block';
+                        // Add timestamp query parameter to bypass cache and start streaming
+                        elVideoFeed.src = `/video_feed?t=${Date.now()}`;
+                    }
+                } else if (data.status === 'starting') {
+                    elStatusBadge.className = 'badge-status';
+                    elStatusBadge.style.background = 'rgba(59, 130, 246, 0.2)';
+                    elStatusBadge.style.color = '#60a5fa';
+                    elStatusBadge.style.borderColor = 'rgba(59, 130, 246, 0.3)';
+                    elStatusBadge.style.boxShadow = 'none';
+                    elStatusText.textContent = 'MEMULAI SISTEM...';
+                    elBtnStart.disabled = true;
+                    elBtnStop.disabled = true;
+                    
+                    // Hide video feed image, show loading placeholder
+                    elVideoFeed.style.display = 'none';
+                    elVideoPlaceholder.style.display = 'flex';
+                    document.getElementById('placeholder-text').innerHTML = 'Model YOLO sedang dimuat di background...<br>Mohon tunggu sebentar.';
+                } else {
+                    elStatusBadge.removeAttribute('style');
+                    elStatusBadge.className = 'badge-status stopped';
+                    elStatusText.textContent = 'SISTEM BERHENTI';
+                    elBtnStart.disabled = false;
+                    elBtnStop.disabled = true;
+                    
+                    // Hide video feed image
+                    elVideoFeed.style.display = 'none';
+                    elVideoPlaceholder.style.display = 'flex';
+                    elVideoFeed.src = '';
+                    document.getElementById('placeholder-text').innerHTML = 'Sistem dimatikan atau stream terputus.<br>Klik "Mulai Deteksi" untuk mengaktifkan pemantauan.';
+                }
+
+                // Stream URL Input Value (if user hasn't modified it manually)
+                if (document.activeElement !== elInputStreamUrl && elInputStreamUrl.value !== activeStreamUrl) {
+                    elInputStreamUrl.value = activeStreamUrl;
+                }
+
+                // Update Stream Backend info
+                elStreamBackendBadge.textContent = isRunning ? `Stream: ${data.capture_backend}` : 'Off';
+
+                // Stats Metrics
+                const stats = data.stats || {};
+                elStatTracked.textContent = stats.total_tracked || 0;
+                elStatStationary.textContent = stats.stationary_count || 0;
+                elStatViolations.textContent = stats.violations_today || 0;
+                elStatMoving.textContent = stats.moving_count || 0;
+                elStatCustomZones.textContent = data.custom_zones ? 'Ya (Kustom)' : 'Tidak (Default)';
+                
+                // Highlight stationary / violations cards if not zero
+                if (stats.stationary_count > 0) {
+                    elStationaryCard.className = 'stat-card stationary-val';
+                } else {
+                    elStationaryCard.className = 'stat-card';
+                }
+
+                if (stats.violations_today > 0) {
+                    elViolationsCard.className = 'stat-card active-alert';
+                } else {
+                    elViolationsCard.className = 'stat-card';
+                }
+
+                // Alert Banner & Alarm Text
+                lastAlert = data.alert;
+                if (lastAlert) {
+                    elAlertBanner.style.display = 'flex';
+                    elStatAlarm.textContent = lastAlert;
+                    elStatAlarm.style.color = 'var(--danger)';
+                } else {
+                    elAlertBanner.style.display = 'none';
+                    elStatAlarm.textContent = 'NORMAL';
+                    elStatAlarm.style.color = 'var(--success)';
+                }
+
+                // Update custom zone coordinates textarea
+                if (document.activeElement !== elTextareaZones) {
+                    elTextareaZones.value = data.zone_json || '';
+                }
+
+                // Render Logs Table
+                renderLogsTable(data.logs);
+
+            } catch (err) {
+                console.error(err);
+                elStatusBadge.className = 'badge-status stopped';
+                elStatusText.textContent = 'KONEKSI TERPUTUS';
+            }
+        }
+
+        // POST Command to control start/stop
+        async function controlSystem(action) {
+            try {
+                const response = await fetch('/api/control', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action })
+                });
+                const data = await response.json();
+                if (data.status === 'ok') {
+                    fetchSnapshot();
+                } else {
+                    alert('Gagal mengontrol detector: ' + data.message);
+                }
+            } catch (err) {
+                console.error(err);
+                alert('Gagal mengirim perintah kontrol backend.');
+            }
+        }
+
+        // POST Command to change stream URL
+        async function updateStreamUrl() {
+            const streamUrl = elInputStreamUrl.value.trim();
+            if (!streamUrl) {
+                alert('URL Stream HLS tidak boleh kosong!');
+                return;
+            }
+            try {
+                elBtnUpdateUrl.disabled = true;
+                elBtnUpdateUrl.textContent = 'Mereset Stream...';
+                
+                const response = await fetch('/api/stream_url', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ stream_url: streamUrl })
+                });
+                const data = await response.json();
+                if (data.status === 'ok') {
+                    // Force refresh video element
+                    elVideoFeed.src = '';
+                    setTimeout(() => {
+                        fetchSnapshot();
+                        elBtnUpdateUrl.disabled = false;
+                        elBtnUpdateUrl.textContent = 'Update URL & Restart';
+                    }, 1500);
+                } else {
+                    alert('Gagal update URL: ' + data.message);
+                    elBtnUpdateUrl.disabled = false;
+                    elBtnUpdateUrl.textContent = 'Update URL & Restart';
+                }
+            } catch (err) {
+                console.error(err);
+                alert('Gagal mengirim update URL.');
+                elBtnUpdateUrl.disabled = false;
+                elBtnUpdateUrl.textContent = 'Update URL & Restart';
+            }
+        }
+
+        // POST Command to save custom zones coordinates
+        async function saveZones() {
+            const zonesText = elTextareaZones.value.trim();
+            try {
+                // simple json validation
+                JSON.parse(zonesText);
+                
+                const response = await fetch('/api/zones', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ zones: zonesText })
+                });
+                const data = await response.json();
+                if (data.status === 'ok') {
+                    alert('Zona berhasil disimpan!');
+                    fetchSnapshot();
+                } else {
+                    alert('Gagal menyimpan zona: ' + data.message);
+                }
+            } catch (err) {
+                console.error(err);
+                alert('Gagal menyimpan zona: Format JSON tidak valid.');
+            }
+        }
+
+        // POST Command to reset zones to default
+        async function resetZones() {
+            if (!confirm('Kembalikan koordinat zona ke default (sisi kanan dan kiri otomatis)?')) return;
+            try {
+                const response = await fetch('/api/zones/reset', {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                if (data.status === 'ok') {
+                    alert('Zona berhasil direset ke default!');
+                    fetchSnapshot();
+                } else {
+                    alert('Gagal mereset zona: ' + data.message);
+                }
+            } catch (err) {
+                console.error(err);
+                alert('Gagal mereset zona.');
+            }
+        }
+
+        // Render logs in the table
+        function renderLogsTable(logs) {
+            if (!logs || logs.length === 0) {
+                elLogsTableBody.innerHTML = `
+                    <tr>
+                        <td colspan="7" class="empty-logs">Belum ada pelanggaran yang tercatat hari ini.</td>
+                    </tr>
+                `;
+                return;
+            }
+
+            let html = '';
+            logs.forEach(log => {
+                // format duration
+                const min = Math.floor(log.durasi_detik / 60);
+                const sec = Math.round(log.durasi_detik % 60);
+                const durationStr = min > 0 ? `${min}m ${sec}s` : `${sec}s`;
+                
+                // Get filename from screenshot path
+                const pathParts = log.screenshot.split(/[\\/]/);
+                const filename = pathParts[pathParts.length - 1];
+                const ssUrl = `/violations/${filename}`;
+
+                html += `
+                    <tr>
+                        <td style="font-weight: 500;">${log.waktu}</td>
+                        <td>${log.waktu_masuk}</td>
+                        <td><strong style="color: var(--danger);">${durationStr}</strong></td>
+                        <td><span class="badge-vehicle">${log.jenis_kendaraan}</span></td>
+                        <td><code>#${log.track_id}</code></td>
+                        <td><span class="badge-zone ${log.zona}">${log.zona.toUpperCase()}</span></td>
+                        <td>
+                            <button class="btn-view-ss" onclick="viewScreenshot('${ssUrl}', '${log.track_id}', '${log.jenis_kendaraan}', '${durationStr}', '${log.waktu}')">
+                                Bukti Foto
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            });
+            elLogsTableBody.innerHTML = html;
+        }
+
+        // Open screenshot modal
+        function viewScreenshot(url, trackId, vehicleType, duration, timestamp) {
+            elModalImg.src = url;
+            elModalTitle.textContent = `Bukti Pelanggaran - ${timestamp}`;
+            elModalMetaLeft.textContent = `ID Kendaraan: #${trackId} | Jenis: ${vehicleType.toUpperCase()}`;
+            elModalMetaRight.textContent = `Durasi Pelanggaran: ${duration}`;
+            elModal.style.display = 'flex';
+        }
+
+        // Close screenshot modal
+        function closeModal() {
+            elModal.style.display = 'none';
+            elModalImg.src = '';
+        }
+
+        // Tab Switching Logic
+        function switchTab(tabId) {
+            // Hide all tab pages
+            document.querySelectorAll('.tab-page').forEach(page => {
+                page.classList.remove('active');
+            });
+            // Remove active class from all tab buttons
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            
+            // Show selected page
+            const selectedPage = document.getElementById(`tab-${tabId}`);
+            if (selectedPage) {
+                selectedPage.classList.add('active');
+            }
+            
+            // Add active class to clicked button
+            const clickedBtn = document.getElementById(`btn-tab-${tabId}`);
+            if (clickedBtn) {
+                clickedBtn.classList.add('active');
+            }
+            
+            // If switching to analytics, fetch latest data
+            if (tabId === 'analytics') {
+                fetchAnalytics();
+            }
+        }
+
+        // Global Chart instances
+        let hourlyChartInstance = null;
+        let trendChartInstance = null;
+
+        // Fetch analytics from API
+        async function fetchAnalytics() {
+            try {
+                const response = await fetch('/api/analytics');
+                if (!response.ok) throw new Error('Failed to fetch analytics');
+                const data = await response.json();
+                
+                // Update metrics cards
+                document.getElementById('anal-avg-duration').textContent = formatDurationSec(data.durasi_rata_detik_total);
+                document.getElementById('anal-peak-hour').textContent = data.jam_rawan;
+                
+                // Find most vulnerable zone
+                let worstZone = '-';
+                let maxViolations = -1;
+                data.analisis_zona.forEach(z => {
+                    if (z.jumlah_pelanggaran > maxViolations) {
+                        maxViolations = z.jumlah_pelanggaran;
+                        worstZone = z.zona;
+                    }
+                });
+                document.getElementById('anal-worst-zone').textContent = worstZone;
+
+                // Update engine badge dynamically
+                const elSparkBadge = document.getElementById('spark-badge');
+                if (elSparkBadge) {
+                    if (data.spark_processed) {
+                        elSparkBadge.textContent = 'Engine: Apache Spark (Batch)';
+                        elSparkBadge.style.background = 'var(--success-glow)';
+                        elSparkBadge.style.color = '#34d399';
+                        elSparkBadge.style.borderColor = 'rgba(16, 185, 129, 0.2)';
+                    } else {
+                        elSparkBadge.textContent = 'Engine: Pandas (Fallback)';
+                        elSparkBadge.style.background = 'rgba(245, 158, 11, 0.15)';
+                        elSparkBadge.style.color = '#fbbf24';
+                        elSparkBadge.style.borderColor = 'rgba(245, 158, 11, 0.2)';
+                    }
+                }
+
+                // Render Zone Analytics Table
+                renderAnalyticsTable(data.analisis_zona);
+                
+                // Render Charts
+                renderHourlyChart(data.distribusi_jam);
+                renderTrendChart(data.tren_pelanggaran);
+                
+            } catch (err) {
+                console.error('Error fetching analytics:', err);
+            }
+        }
+
+        function formatDurationSec(sec) {
+            const min = Math.floor(sec / 60);
+            const remainder = Math.round(sec % 60);
+            return min > 0 ? `${min}m ${remainder}s` : `${remainder}s`;
+        }
+
+        function renderAnalyticsTable(zones) {
+            const tbody = document.getElementById('analytics-table-body');
+            if (!zones || zones.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;">Tidak ada data analitik zona.</td></tr>`;
+                return;
+            }
+            
+            let html = '';
+            zones.forEach(z => {
+                let impactClass = 'LOW';
+                if (z.dampak_kemacetan.includes('MEDIUM') || z.dampak_kemacetan.includes('SEDANG')) impactClass = 'MEDIUM';
+                if (z.dampak_kemacetan.includes('HIGH') || z.dampak_kemacetan.includes('TINGGI')) impactClass = 'HIGH';
+                
+                html += `
+                    <tr>
+                        <td style="font-weight:600;"><span class="badge-zone ${z.zona.toLowerCase()}">${z.zona}</span></td>
+                        <td><strong>${z.jumlah_pelanggaran}</strong> kali</td>
+                        <td>${formatDurationSec(z.durasi_rata_detik)}</td>
+                        <td>
+                            <span class="badge-priority ${z.prioritas_penanganan}" style="font-size:0.9rem; padding:0.35rem 0.75rem;">
+                                Index: ${z.indeks_parkir_liar}
+                            </span>
+                        </td>
+                        <td>
+                            <span class="badge-impact ${impactClass}">${z.dampak_kemacetan}</span>
+                            <div style="font-size:0.8rem; color:var(--text-secondary); margin-top:0.25rem;">${z.dampak_deskripsi}</div>
+                        </td>
+                        <td style="color:var(--text-primary); font-size:0.85rem; max-width: 320px; white-space: normal; line-height: 1.5;">
+                            <strong>[Prioritas ${z.prioritas_penanganan}]</strong> ${z.rekomendasi}
+                        </td>
+                    </tr>
+                `;
+            });
+            tbody.innerHTML = html;
+        }
+
+        function renderHourlyChart(hourlyData) {
+            const el = document.getElementById('hourlyChart');
+            if (!el) return;
+            const ctx = el.getContext('2d');
+            const labels = Array.from({ length: 24 }, (_, i) => `${i.toString().padStart(2, '0')}:00`);
+            
+            if (hourlyChartInstance) {
+                hourlyChartInstance.data.datasets[0].data = hourlyData;
+                hourlyChartInstance.update();
+                return;
+            }
+            
+            hourlyChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Jumlah Pelanggaran',
+                        data: hourlyData,
+                        backgroundColor: 'rgba(79, 70, 229, 0.6)',
+                        borderColor: '#6366f1',
+                        borderWidth: 1.5,
+                        borderRadius: 4,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: { color: '#94a3b8', stepSize: 2 }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#94a3b8', font: { size: 9 } }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false }
+                    }
+                }
+            });
+        }
+
+        function renderTrendChart(trendData) {
+            const el = document.getElementById('trendChart');
+            if (!el) return;
+            const ctx = el.getContext('2d');
+            const labels = trendData.map(t => {
+                const p = t.tanggal.split('-');
+                return p.length === 3 ? `${p[2]}/${p[1]}` : t.tanggal;
+            });
+            const values = trendData.map(t => t.jumlah);
+            
+            if (trendChartInstance) {
+                trendChartInstance.data.labels = labels;
+                trendChartInstance.data.datasets[0].data = values;
+                trendChartInstance.update();
+                return;
+            }
+            
+            trendChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Pelanggaran Harian',
+                        data: values,
+                        borderColor: '#10b981',
+                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                        borderWidth: 3,
+                        fill: true,
+                        tension: 0.3,
+                        pointBackgroundColor: '#10b981',
+                        pointRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: { color: '#94a3b8', stepSize: 2 }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#94a3b8' }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false }
+                    }
+                }
+            });
+        }
+    </script>
+</body>
+</html>

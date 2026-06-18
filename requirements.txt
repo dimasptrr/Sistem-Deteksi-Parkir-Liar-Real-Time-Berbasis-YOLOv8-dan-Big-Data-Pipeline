@@ -1,0 +1,9 @@
+ultralytics>=8.2.0
+opencv-python>=4.9.0
+streamlit>=1.33.0
+pandas>=2.0.0
+supervision>=0.18.0
+numpy>=1.24.0
+imageio-ffmpeg>=0.5.1
+confluent-kafka>=2.0.0
+pyarrow>=14.0.0
