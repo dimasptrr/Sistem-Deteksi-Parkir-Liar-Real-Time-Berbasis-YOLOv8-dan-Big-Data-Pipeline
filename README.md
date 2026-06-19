@@ -6,17 +6,15 @@ Sistem pemantauan dan deteksi pelanggaran parkir liar secara *real-time* berbasi
 
 ## 📝 Rubrik 1: Identifikasi Masalah & Latar Belakang
 
-Praktik parkir liar di Yogyakarta telah terdokumentasi dengan baik sebagai masalah sistemik yang mendesak, dibuktikan oleh data dan laporan berikut:
+1. Masalah parkir liar di Yogyakarta terus memburuk akibat ketimpangan ekstrem antara volume kendaraan (lebih dari 1 juta saat musim liburan berdasarkan detik.com) dengan kapasitas ruang parkir resmi yang sangat terbatas. Akibatnya, Menumpuknya parkir ilegal terjadi di lebih dari 130 ruas jalan(berdasarkan artikel pandangan jogja).
 
-Berdasarkan portal aduan resmi E-Lapor Pemda DIY, terdapat lonjakan pengaduan masyarakat mengenai praktik parkir liar yang menyempitkan ruas jalan raya dan menimbulkan keresahan. Aduan ini memakan waktu mulai dari disposisi hingga penanganan lapangan yang lambat karena harus dilakukan secara manual oleh petugas gabungan Polresta dan Dishub.
+Pendekatan konvensional yang ada saat ini terbukti gagal menyelesaikan masalah karena beberapa gap operasional:
 
-Laporan Ombudsman RI Perwakilan DIY (Potensi Maladministrasi dalam Penyelenggaraan Layanan Parkir di Kawasan Wisata Kota Yogyakarta) menemukan bahwa menjamurnya titik parkir liar terjadi karena ketidakmampuan **mendeteksi** dan mengarahkan pengguna ke Tempat Khusus Parkir (TKP) resmi yang sebenarnya belum optimal (seperti TKP Abu Bakar Ali dan Ngabean).
+- Penindakan bergantung pada laporan manual masyarakat dengan waktu respons 1 hingga 3 jam.
+- Jeda waktu penanganan mengakibatkan >50% pelanggar sudah kabur sebelum petugas tiba di lokasi.
+- Ketiadaan bukti digital membuat sanksi denda maksimal Rp 50.000.000 (Perda No. 2 Tahun 2019) tidak efektif memberikan efek jera.
 
-Berdasarkan data Dinas Perhubungan (Dishub) DIY, pada masa peak season (seperti libur Nataru atau Lebaran), volume kendaraan bermotor yang masuk ke wilayah DIY bisa melonjak hingga lebih dari 1 juta kendaraan.
-
-Sangat disayangkan Tempat Khusus Parkir (TKP) resmi yang dikelola pemerintah di sekitar kawasan sumbu filosofis/Malioboro (seperti TKP Abu Bakar Ali, Senopati, Ngabean) total daya tampungnya hanya berkisar 1.200 hingga 1.500 satuan ruang parkir (SRP) untuk mobil dan sekitar 3.000 SRP untuk motor.
-
-Maka dari itu ada selisih ratusan ribu kendaraan yang bergerak di pusat kota yang secara matematis tidak akan tertampung oleh kantong parkir resmi, sehingga memicu parkir liar secara instan ke bahu jalan.
+Sistem kami dibangun untuk menutup celah tersebut. Dengan memanfaatkan stream dari API CCTV yang diintegrasikan dengan deteksi Computer Vision, platform web ini secara otonom memantau titik rawan, menangkap snapshot bukti pelanggaran secara real-time, dan menyediakan dashboard statistik proaktif untuk mengarahkan operasi petugas secara presisi.
 
 2. Mengapa Big Data Diperlukan? (Kerangka 5V)
 Sistem web yang menarik umpan video langsung (Live Cam) dari API CCTV kota (seperti ATCS Dishub) dan memprosesnya dengan AI akan menghasilkan lalu lintas data berskala masif. 
@@ -30,6 +28,19 @@ Sistem web yang menarik umpan video langsung (Live Cam) dari API CCTV kota (sepe
 - Veracity: Di jalanan, AI akan menghadapi noise yang tinggi—seperti pantulan cahaya malam hari, hujan, atau kendaraan yang tertutup (occluded) kendaraan lain. Big Data dibutuhkan untuk melatih dan menyaring data ini agar insight yang dihasilkan akurat, memastikan sistem bisa membedakan mobil yang terjebak macet dengan mobil yang sengaja parkir liar.
 
 - Value: Aliran data yang besar tidak ada gunanya tanpa visualisasi yang tepat. Melalui web dashboard, data itu diubah menjadi Value, seperti statistik live, grafik tren jam rawan, dan rekomendasi otomatis bagi aparat untuk melakukan penertiban secara presisi.
+
+Mengapa Sistem Saat Ini Belum Menyelesaikan Masalah?
+Sistem web berbasis AI yang kami rancang ini menutup celah besar (gap) dari metode penanganan yang saat ini dijalankan oleh pemerintah daerah:
+
+**Gap Pengumpulan Bukti** (Manual vs Bukti Digital Otomatis)
+- Kondisi Saat Ini: Penindakan hukum terhambat karena kendaraan sudah pergi saat petugas tiba
+- Solusi Sistem Web AI: AI secara otomatis menangkap (capture) plat nomor/kendaraan dari stream CCTV saat terdeteksi berhenti melampaui batas waktu yang ditentukan. Snapshot beserta timestamp-nya otomatis tersimpan di database web sebagai bukti mutlak.
+
+**Gap Pengambilan Keputusan** (Reaktif Berdasarkan Aduan vs Proaktif Berdasarkan Statistik)
+
+- Kondisi Saat Ini: Dishub dan Polisi seringkali bergerak berdasarkan laporan viral di media sosial atau E-Lapor (yang memakan waktu verifikasi), sehingga kemacetan terlanjur parah.
+- Solusi Sistem Web AI: Dashboard web menyajikan live footage cctv di lapangan. Petugas tidak perlu menunggu laporan; mereka bisa memantau tren yang muncul di monitor web dan mengirim personel sebelum kemacetan akibat parkir liar mengular.
+
 ---
 
 ## 📝 Rubrik 2: Desain Infrastruktur & Arsitektur Terdistribusi (Event-Driven)
@@ -196,3 +207,10 @@ Akses dashboard pada peramban Anda di: `http://localhost:8501`
 1.  **Alur CCTV Real-Time**: Tunjukkan video CCTV FMNoto langsung. Ketika mobil berhenti di zona merah, kotak YOLO berubah kuning (toleransi), lalu setelah melewati batas waktu menjadi merah (pelanggaran), memicu alarm, menyimpan screenshot bukti, dan data mentahnya masuk ke **Bronze Layer**.
 2.  **Peran Apache Spark (Lakehouse Batch)**: Jelaskan bahwa data Bronze yang sangat kotor disaring, dibersihkan dari duplikat, dan dihitung durasinya oleh **Apache Spark** menjadi **Silver Parquet**, kemudian diagregasi ke **Gold Parquet**. Tab dashboard Analytics memuat Parquet secara langsung sehingga performa dashboard sangat responsif dan ringan.
 3.  **Akurasi Sistem (Anti-False Alarm)**: Jelaskan 4 tingkat penyaringan sistem (Spasial Geofencing, Temporal Grace Period, Vector Tracking ByteTrack, dan Semantik YOLOv8) yang menjamin sistem tidak salah mendeteksi kemacetan biasa sebagai parkir liar.
+
+
+Sumber Artikel :
+https://www.detik.com/jogja/berita/d-8292990/4-juta-kendaraan-diprediksi-masuk-diy-saat-nataru-ternyata
+https://www.instagram.com/p/DSXBh1dE4bp/
+https://peraturan.bpk.go.id/Details/108354/perda-kota-yogyakarta-no-2-tahun-2019
+
