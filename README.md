@@ -6,15 +6,30 @@ Sistem pemantauan dan deteksi pelanggaran parkir liar secara *real-time* berbasi
 
 ## 📝 Rubrik 1: Identifikasi Masalah & Latar Belakang
 
-### 1.1 Permasalahan Parkir Liar
-Parkir liar di bahu jalan merupakan salah satu penyebab utama kemacetan kronis di area perkotaan Indonesia. Dampak negatif dari parkir liar meliputi:
-- **Penyempitan Lajur Jalan**: Mengurangi kapasitas jalan (*road capacity*), menurunkan kecepatan rata-rata kendaraan, dan memicu penumpukan antrean lalu lintas.
-- **Keterbatasan Petugas**: Pemantauan manual oleh dinas perhubungan (Dishub) atau kepolisian sangat terbatas oleh waktu, tenaga, dan tidak dapat dilakukan secara 24/7 di seluruh titik rawan.
-- **Kurangnya Data Taktis**: Kebijakan penertiban jalan sering kali bersifat reaktif (hanya saat ada aduan masyarakat) karena pemerintah tidak memiliki data kuantitatif mengenai durasi rata-rata pelanggaran dan tingkat kerawanan lalu lintas secara periodik.
+Praktik parkir liar di Yogyakarta telah terdokumentasi dengan baik sebagai masalah sistemik yang mendesak, dibuktikan oleh data dan laporan berikut:
 
-### 1.2 Urgensi Solusi Big Data & AI
-Sistem ini dirancang untuk mengatasi permasalahan tersebut dengan melakukan otomatisasi pemantauan menggunakan CCTV kota, memproses jutaan event pendeteksian secara terdistribusi, mengelompokkannya ke dalam arsitektur Data Lakehouse, dan menganalisis prioritas tindakan menggunakan Apache Spark demi menghasilkan rekomendasi kebijakan berbasis data (*data-driven policy*).
+Berdasarkan portal aduan resmi E-Lapor Pemda DIY, terdapat lonjakan pengaduan masyarakat mengenai praktik parkir liar yang menyempitkan ruas jalan raya dan menimbulkan keresahan. Aduan ini memakan waktu mulai dari disposisi hingga penanganan lapangan yang lambat karena harus dilakukan secara manual oleh petugas gabungan Polresta dan Dishub.
 
+Laporan Ombudsman RI Perwakilan DIY (Potensi Maladministrasi dalam Penyelenggaraan Layanan Parkir di Kawasan Wisata Kota Yogyakarta) menemukan bahwa menjamurnya titik parkir liar terjadi karena ketidakmampuan **mendeteksi** dan mengarahkan pengguna ke Tempat Khusus Parkir (TKP) resmi yang sebenarnya belum optimal (seperti TKP Abu Bakar Ali dan Ngabean).
+
+Berdasarkan data Dinas Perhubungan (Dishub) DIY, pada masa peak season (seperti libur Nataru atau Lebaran), volume kendaraan bermotor yang masuk ke wilayah DIY bisa melonjak hingga lebih dari 1 juta kendaraan.
+
+Sangat disayangkan Tempat Khusus Parkir (TKP) resmi yang dikelola pemerintah di sekitar kawasan sumbu filosofis/Malioboro (seperti TKP Abu Bakar Ali, Senopati, Ngabean) total daya tampungnya hanya berkisar 1.200 hingga 1.500 satuan ruang parkir (SRP) untuk mobil dan sekitar 3.000 SRP untuk motor.
+
+Maka dari itu ada selisih ratusan ribu kendaraan yang bergerak di pusat kota yang secara matematis tidak akan tertampung oleh kantong parkir resmi, sehingga memicu parkir liar secara instan ke bahu jalan.
+
+2. Mengapa Big Data Diperlukan? (Kerangka 5V)
+Sistem web yang menarik umpan video langsung (Live Cam) dari API CCTV kota (seperti ATCS Dishub) dan memprosesnya dengan AI akan menghasilkan lalu lintas data berskala masif. 
+
+- Volume: Mengambil data (fetching) dari  API CCTV di seluruh Jogja berarti menampung gambar setiap harinya. Skala data video mentah dan snapshot ini lumayan besar dan membutuhkan manajemen penyimpanan yang terukur di backend.
+
+- Velocity: Data dari API CCTV masuk dalam bentuk streaming secara konstan (sekian frame per second). Model AI harus melakukan inferencing (mendeteksi kendaraan dan menghitung durasi berhenti) secara real-time (kecepatan tinggi) agar statistik di web dashboard selalu mutakhir tanpa penundaan.
+
+- Variety: Sistem ini harus sanggup menelan tipe data yang sangat bervariasi, aliran video tak terstruktur (RTSP/HTTP stream), gambar statis (snapshot pelanggaran), log semi-terstruktur (berkas JSON), hingga data terstruktur (statistik jumlah pelanggaran per jalan).
+
+- Veracity: Di jalanan, AI akan menghadapi noise yang tinggi—seperti pantulan cahaya malam hari, hujan, atau kendaraan yang tertutup (occluded) kendaraan lain. Big Data dibutuhkan untuk melatih dan menyaring data ini agar insight yang dihasilkan akurat, memastikan sistem bisa membedakan mobil yang terjebak macet dengan mobil yang sengaja parkir liar.
+
+- Value: Aliran data yang besar tidak ada gunanya tanpa visualisasi yang tepat. Melalui web dashboard, data itu diubah menjadi Value, seperti statistik live, grafik tren jam rawan, dan rekomendasi otomatis bagi aparat untuk melakukan penertiban secara presisi.
 ---
 
 ## 📝 Rubrik 2: Desain Infrastruktur & Arsitektur Terdistribusi (Event-Driven)
