@@ -81,7 +81,7 @@ Sistem ini dirancang menggunakan paradigma **Event-Driven Architecture (EDA)** b
 
 ---
 
-## 📝 Rubrik 3: Desain Data Lakehouse (Bronze, Silver, Gold Layer)
+## 📝 Rubrik 3: Implementasi Data Lakehouse (Bronze, Silver, Gold Layer)
 
 Untuk menyusun sistem pengolahan data yang rapi dan meminimalkan beban komputasi real-time, kami mengadopsi konsep **Data Lakehouse** berbasis penyimpanan file teroptimasi (**Parquet**).
 
@@ -96,7 +96,7 @@ Parquet adalah format file penyimpanan berbasis kolom (*columnar storage*) yang 
 
 ---
 
-## 📝 Rubrik 4: Teknis Analisis & Pemrosesan Big Data (Apache Spark)
+## 📝 Rubrik 4: Teknis Analisis & Kualitas Output (Apache Spark)
 
 Pemrosesan batch dan agregasi analitik dilakukan oleh **Apache Spark (PySpark)** secara terdistribusi. Spark memproses raw JSON dari Bronze Layer menjadi bentuk agregat terstruktur di Gold Layer.
 
