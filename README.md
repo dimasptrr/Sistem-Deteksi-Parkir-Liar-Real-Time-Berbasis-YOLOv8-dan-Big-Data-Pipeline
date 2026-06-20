@@ -220,7 +220,10 @@ def point_to_zone(self, point):
             return zone_name  # titik di dalam polygon zona merah
     return None  # di luar zona → diabaikan total, tidak masuk pipeline
 ```
- Algoritma **Point-in-Polygon (PIP)** via `cv2.pointPolygonTest` mengecek apakah centroid bawah bounding box kendaraan berada di dalam polygon zona larangan yang digambar manual per kamera. Zona dapat diperbarui secara dinamis melalui web UI FastAPI.
+
+
+Algoritma **Point-in-Polygon (PIP)** via `cv2.pointPolygonTest` mengecek apakah centroid bawah bounding box kendaraan berada di dalam polygon zona larangan yang digambar manual per kamera. Zona dapat diperbarui secara dinamis melalui web UI FastAPI.
+
 ---
 
 ### 2. **Inovasi 2: Temporal Filter (Double Threshold Duration)**
