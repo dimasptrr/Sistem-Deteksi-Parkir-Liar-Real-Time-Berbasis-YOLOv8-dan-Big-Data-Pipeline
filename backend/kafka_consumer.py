@@ -79,7 +79,7 @@ def main():
             display_width=960,
             stationary_speed_threshold=12.0,
             stationary_grace_seconds=5.0,
-            violation_seconds=15 * 60,
+            violation_seconds=2 * 60,
         )
         detector._ensure_default_zones(960, 540)
     except Exception as e:

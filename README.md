@@ -157,15 +157,55 @@ Aplikasi ini menghadirkan inovasi berupa **Multi-Level Filtering System** untuk 
 
 ## 📝 Rubrik 6: Demo Sistem & Panduan Langkah-Langkah
 
-### 6.1 Peta Fungsi Kode Program (Codebase Mapping)
-*   **[bronze_detector.py](file:///d:/Kuliah/Semester%204/Big%20Data%20Dan%20Data%20Lakehouse/EAS%20BIG%20DATA/parkir-liar-detector/backend/bronze_detector.py)**: Mengelola deteksi objek (YOLOv8), pelacakan (ByteTrack), logika durasi diam, pemanggilan screenshot bukti, dan penyimpanan data mentah **Bronze Layer** (`raw_detections.json`).
-*   **[zone_manager.py](file:///d:/Kuliah/Semester%204/Big%20Data%20Dan%20Data%20Lakehouse/EAS%20BIG%20DATA/parkir-liar-detector/backend/zone_manager.py)**: Mengatur batas geofencing bahu jalan dilarang parkir (polygon).
-*   **[ffmpeg_capture.py](file:///d:/Kuliah/Semester%204/Big%20Data%20Dan%20Data%20Lakehouse/EAS%20BIG%20DATA/parkir-liar-detector/backend/ffmpeg_capture.py)**: Menangkap stream HLS video CCTV Yogyakarta secara *real-time* berlatensi rendah menggunakan FFmpeg.
-*   **[spark_silver_gold.py](file:///d:/Kuliah/Semester%204/Big%20Data%20Dan%20Data%20Lakehouse/EAS%20BIG%20DATA/parkir-liar-detector/backend/spark_silver_gold.py)**: Engine Apache Spark yang mengimplementasikan ETL Lakehouse (Bronze -> Silver -> Gold).
-*   **[generate_mock_bronze.py](file:///d:/Kuliah/Semester%204/Big%20Data%20Dan%20Data%20Lakehouse/EAS%20BIG%20DATA/parkir-liar-detector/backend/generate_mock_bronze.py)**: Membuat data tiruan raw frame YOLO historis berukuran besar ke dalam Bronze Layer untuk pengujian Spark.
-*   **[server.py](file:///d:/Kuliah/Semester%204/Big%20Data%20Dan%20Data%20Lakehouse/EAS%20BIG%20DATA/parkir-liar-detector/frontend/server.py)**: API Gateway FastAPI. Endpoint `/api/analytics` diubah untuk membaca **Gold Parquet** secara langsung untuk efisiensi visualisasi grafik.
-*   **[app.py](file:///d:/Kuliah/Semester%204/Big%20Data%20Dan%20Data%20Lakehouse/EAS%20BIG%20DATA/parkir-liar-detector/frontend/app.py)**: Entrypoint Streamlit pembungkus HTML.
-*   **[index.html](file:///d:/Kuliah/Semester%204/Big%20Data%20Dan%20Data%20Lakehouse/EAS%20BIG%20DATA/parkir-liar-detector/frontend/index.html)**: UI Dashboard web interaktif (glassmorphism UI, grafik Chart.js, feed video langsung, modal bukti foto, SOP Validasi).
+### 6.1 Peta Fungsi Kode Program & Logika Krusial (Codebase Mapping)
+
+Berikut adalah peran dari masing-masing file kode program di dalam sistem beserta **logika penting (krusial)** yang diimplementasikan:
+
+*   **[bronze_detector.py](file:///d:/Kuliah/Semester%204/Big%20Data%20Dan%20Data%20Lakehouse/EAS%20BIG%20DATA/parkir-liar-detector/backend/bronze_detector.py)**
+    *   *Peran*: Core Engine Deteksi Real-Time.
+    *   *Logika Krusial*: Mengintegrasikan model **YOLOv8** untuk klasifikasi kendaraan dengan **ByteTrack** untuk pelacakan objek unik (*track ID*) secara terpisah per kamera. Status durasi kendaraan diam dikelola oleh class `VehicleState`. Jika centroid bounding box bergeser di bawah nilai toleransi kecepatan piksel, kendaraan dianggap diam dan variabel `stationary_since` diaktifkan. Jika durasi diam melampaui `stationary_grace_seconds` (5 detik), status visual berubah menjadi **Kuning** (Peringatan). Jika terus diam hingga melampaui `violation_seconds` (120 detik), status berubah menjadi **Merah** (Pelanggaran), yang secara otomatis memicu penyimpanan screenshot bukti fisik (`.jpg`) dan menulis record event deteksi mentah secara konstan ke **Bronze Layer** (`raw_detections.json`).
+
+*   **[zone_manager.py](file:///d:/Kuliah/Semester%204/Big%20Data%20Dan%20Data%20Lakehouse/EAS%20BIG%20DATA/parkir-liar-detector/backend/zone_manager.py)**
+    *   *Peran*: Manajemen Bahu Jalan Dilarang Parkir (Geofencing).
+    *   *Logika Krusial*: Mengimplementasikan algoritma **Point-in-Polygon (PIP)** menggunakan library `Shapely`. Script ini menentukan apakah titik tengah (*centroid*) bawah dari bounding box kendaraan (koordinat X,Y) berada di dalam batas area polygon zona larangan (`left` atau `right`). Zona koordinat ini juga dapat diperbarui secara dinamis oleh pengguna melalui web UI FastAPI.
+
+*   **[ffmpeg_capture.py](file:///d:/Kuliah/Semester%204/Big%20Data%20Dan%20Data%20Lakehouse/EAS%20BIG%20DATA/parkir-liar-detector/backend/ffmpeg_capture.py)**
+    *   *Peran*: Ingestion CCTV Stream Berlatensi Rendah.
+    *   *Logika Krusial*: Menjalankan program `FFmpeg` eksternal di latar belakang sebagai subprocess Python. Frame didecode dari stream HLS (`.m3u8`) CCTV Yogyakarta langsung dari `stdout` pipa (pipe) subprocess menjadi buffer bytes mentah (format BGR/RGB) tanpa menulis ke disk. Proses ini berjalan secara *non-blocking* di thread terpisah untuk meminimalkan jeda waktu (*network lag*) video.
+
+*   **[kafka_producer.py](file:///d:/Kuliah/Semester%204/Big%20Data%20Dan%20Data%20Lakehouse/EAS%20BIG%20DATA/parkir-liar-detector/backend/kafka_producer.py)**
+    *   *Peran*: Ingestion Pipeline Data Terdistribusi (Producer).
+    *   *Logika Krusial*: Berjalan di thread terpisah untuk menangkap frame dari HLS stream, mengompresnya ke dalam format JPEG untuk meminimalkan bandwidth, melakukan encoding byte tersebut ke format **Base64 String**, dan mempublikasikan data terstruktur (berisi `camera_id`, `timestamp`, `stream_url`, dan `frame_data`) ke Kafka Topic `cctv-frames-<camera_id>` secara asinkron.
+
+*   **[kafka_consumer.py](file:///d:/Kuliah/Semester%204/Big%20Data%20Dan%20Data%20Lakehouse/EAS%20BIG%20DATA/parkir-liar-detector/backend/kafka_consumer.py)**
+    *   *Peran*: Sub-sistem Pemrosesan Terdistribusi (Consumer & YOLO).
+    *   *Logika Krusial*: Bertindak sebagai subsistem terdistribusi yang mendengarkan frame dari broker Kafka untuk beberapa topik kamera secara round-robin. Untuk menghemat RAM, consumer ini memuat model YOLOv8 sekali saja ke memori. Byte gambar didekode kembali menjadi matriks BGR, lalu diproses oleh detektor. State pelacakan dipisahkan secara terisolasi per kamera menggunakan dictionary. Setelah diproses, visual frame beranotasi disimpan ke disk (`latest_frame_<camera_id>.jpg`) dan metrik real-time diekspor ke file terpusat `latest_stats.json` agar dapat dikonsumsi oleh API server.
+
+*   **[spark_silver_gold.py](file:///d:/Kuliah/Semester%204/Big%20Data%20Dan%20Data%20Lakehouse/EAS%20BIG%20DATA/parkir-liar-detector/backend/spark_silver_gold.py)**
+    *   *Peran*: Engine Batch Processing Big Data (Apache Spark).
+    *   *Logika Krusial*:
+        *   **Bronze -> Silver**: Spark membaca file JSON besar, mem-flatten data deteksi YOLO, mengonversi string timestamp menjadi tipe `Timestamp` Spark. Menggunakan **Window Partitioning** (berdasarkan `camera_id`, `track_id`, dan `zone_name` terurut kronologis) untuk menghitung selisih waktu (`gap_seconds`) antar-frame. Jika gap terdeteksi > 120 detik, Spark mengklasifikasikannya sebagai sesi parkir baru (`session_id`). Data dikelompokkan berdasarkan sesi untuk menghitung durasi berhenti bersih (`duration_seconds`). Data yang berhenti $\ge 120$ detik disimpan ke format **Parquet** (Silver Layer) untuk mengeliminasi duplikasi track ID dan data noise.
+        *   **Silver -> Gold**: Spark mengagregasi data Silver untuk menghitung metrik kebijakan seperti **Illegal Parking Index (IPI)** per zona, menentukan dampak kemacetan dan rekomendasi kebijakan secara otomatis, serta mengagregasi statistik jam rawan (`hourly_stats.parquet`), tren harian (`daily_trend.parquet`), dan distribusi kendaraan (`vehicle_stats.parquet`).
+
+*   **[sync_bronze_with_csv.py](file:///d:/Kuliah/Semester%204/Big%20Data%20Dan%20Data%20Lakehouse/EAS%20BIG%20DATA/parkir-liar-detector/backend/sync_bronze_with_csv.py)**
+    *   *Peran*: Sinkronisasi Data Manual/CSV ke Lakehouse.
+    *   *Logika Krusial*: Berfungsi menyinkronkan data dari berkas log CSV (`violations_log.csv`) hasil input penindakan manual ke dalam format raw JSON di Bronze Layer. Logika pentingnya adalah membaca data CSV, menyaring entri yang belum terdaftar di Bronze, meregenerasi baris-baris frame deteksi tiruan dengan interval 5 detik sepanjang masa durasi berhenti kendaraan tersebut, dan menulisnya kembali ke `raw_detections.json` dengan urutan kronologis yang rapi sehingga dapat diolah secara utuh oleh Spark.
+
+*   **[generate_mock_bronze.py](file:///d:/Kuliah/Semester%204/Big%20Data%20Dan%20Data%20Lakehouse/EAS%20BIG%20DATA/parkir-liar-detector/backend/generate_mock_bronze.py)**
+    *   *Peran*: Generator Data Simulasi Skala Besar.
+    *   *Logika Krusial*: Mensimulasikan data deteksi YOLO historis ribuan baris dengan variasi hari, jam sibuk (pagi/sore), dan jenis kendaraan untuk menguji performa engine Apache Spark PySpark dalam mengolah jutaan baris data secara lokal.
+
+*   **[server.py](file:///d:/Kuliah/Semester%204/Big%20Data%20Dan%20Data%20Lakehouse/EAS%20BIG%20DATA/parkir-liar-detector/frontend/server.py)**
+    *   *Peran*: API Gateway & Backend FastAPI.
+    *   *Logika Krusial*: Menyediakan endpoint `/video_feed` yang menyajikan stream visual MJPEG real-time dengan membaca frame beranotasi terbaru dari disk secara asinkron. Menyediakan endpoint analitik `/api/analytics` yang **membaca langsung file Gold Parquet** menggunakan library `Pandas`/`PyArrow` (memanfaatkan kecepatan columnar format Parquet tanpa query database yang berat) serta memiliki mekanisme fallback ke CSV/JSON jika database Parquet belum siap.
+
+*   **[app.py](file:///d:/Kuliah/Semester%204/Big%20Data%20Dan%20Data%20Lakehouse/EAS%20BIG%20DATA/parkir-liar-detector/frontend/app.py)**
+    *   *Peran*: Streamlit Entrypoint & Process Wrapper.
+    *   *Logika Krusial*: Mengontrol inisialisasi aplikasi. Menggunakan dekorator `@st.cache_resource` untuk menjalankan server FastAPI (Uvicorn) dalam thread latar belakang secara *singleton* (tepat sekali saja) selama session Streamlit berlangsung. Ini mencegah konflik kegagalan pengikatan port (port 8080) akibat reload antarmuka Streamlit.
+
+*   **[index.html](file:///d:/Kuliah/Semester%204/Big%20Data%20Dan%20Data%20Lakehouse/EAS%20BIG%20DATA/parkir-liar-detector/frontend/index.html)**
+    *   *Peran*: Antarmuka Pengguna Dashboard Interaktif.
+    *   *Logika Krusial*: Halaman dashboard utama berbasis *glassmorphism UI*. Menggunakan **Chart.js** untuk merender tren analitik, *real-time polling* untuk memperbarui statistik live tanpa refresh halaman, modal pop-up untuk memvalidasi tangkapan bukti foto pelanggaran, dan menyediakan SOP penindakan parkir liar bagi petugas Dinas Perhubungan Yogyakarta.
 
 ### 6.2 Cara Menjalankan Aplikasi
 
