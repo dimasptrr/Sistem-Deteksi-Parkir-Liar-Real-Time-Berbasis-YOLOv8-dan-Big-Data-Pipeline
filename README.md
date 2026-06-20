@@ -284,7 +284,7 @@ ByteTrack mengunci ID kendaraan meski sempat hilang dari frame karena terhalang 
 
 --- 
 
-4. **Inovasi 4: Semantik Filter (YOLOv8 Target)**
+### 4. **Inovasi 4: Semantik Filter (YOLOv8 Target)**
 **Masalah yang diselesaikan:** Tanpa filter ini, pejalan kaki yang berdiri di pinggir jalan atau bayangan pohon bisa masuk ke pipeline deteksi.
  
 **Implementasi (`bronze_detector.py`):**
