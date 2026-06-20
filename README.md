@@ -40,9 +40,6 @@ Sistem web berbasis AI yang kami rancang ini menutup celah besar (gap) dari meto
 
 - Kondisi Saat Ini: Dishub dan Polisi seringkali bergerak berdasarkan laporan viral di media sosial atau E-Lapor (yang memakan waktu verifikasi), sehingga kemacetan terlanjur parah.
 - Solusi Sistem Web AI: Dashboard web menyajikan live footage cctv di lapangan. Petugas tidak perlu menunggu laporan; mereka bisa memantau tren yang muncul di monitor web dan mengirim personel sebelum kemacetan akibat parkir liar mengular.
-
----
-
 ## 📝 Rubrik 2: Desain Infrastruktur & Arsitektur Terdistribusi (Event-Driven)
 
 Sistem ini dirancang menggunakan paradigma **Event-Driven Architecture (EDA)** berlatensi rendah untuk memastikan pemrosesan data berjalan secara terdistribusi dan *scalable* (siap menangani ratusan kamera secara simultan).
@@ -50,7 +47,7 @@ Sistem ini dirancang menggunakan paradigma **Event-Driven Architecture (EDA)** b
 ### 2.1 Alur Aliran Data (Data Pipeline Flow)
 
 ```text
-  [ CCTV HLS Stream (ATCS Kota Yogyakarta - FMNoto) ]
+ [ CCTV HLS Streams (Cam 1: FM Noto & Cam 2: Simpang Tantular) ]
                      │
                      ▼ (Low-latency capture)
               [ FFmpeg Capture ]
@@ -59,14 +56,14 @@ Sistem ini dirancang menggunakan paradigma **Event-Driven Architecture (EDA)** b
              [ Kafka Producer ] ───► Publikasi Base64 frame & metadata ke broker
                      │
                      ▼ (Topic: "cctv-frames")
-                [ Apache Kafka ]
+                 [ Apache Kafka ]
                      │
                      ▼ (Subscriber polls frames)
-             [ Kafka Consumer ]
+              [ Kafka Consumer ]
                      │
                      ├─► [ YOLOv8 Object Detection ]  (Deteksi kendaraan)
-                     ├─► [ ByteTrack Multi-Object ]   (Pelacakan track ID unik)
-                     ├─► [ Zone Manager Geofence ]    (Pengecekan Polygon merah)
+                     ├─► [ ByteTrack Multi-Object ]   (Pelacakan track ID unik per Cam)
+                     ├─► [ Zone Manager Geofence ]    (Pengecekan Polygon merah per Cam)
                      └─► [ Real-Time Detector State ] (Buffered writing ke Bronze)
                                  │
                                  ├─► [ Alarm Pelanggaran ] ──► Update UI real-time
@@ -79,7 +76,7 @@ Sistem ini dirancang menggunakan paradigma **Event-Driven Architecture (EDA)** b
                                              ├─► [ Silver Layer ] ──► data/silver/violations_clean.parquet
                                              └─► [ Gold Layer ]   ──► data/gold/*.parquet
                                                                             │
-                                                                            ▼ (Query Parquet langsung)
+                                                                            ▼ (Query Parquet langsung per camera_id)
                                                                     [ Dashboard Web UI ]
                                                               (FastAPI + Streamlit + Chart.js)
 ```
@@ -89,6 +86,12 @@ Sistem ini dirancang menggunakan paradigma **Event-Driven Architecture (EDA)** b
 - **Apache Kafka (Broker)**: Bertindak sebagai bus data terdistribusi. Producer mengirimkan data frame terkompresi Base64 ke Kafka Topic `cctv-frames`. Hal ini mencegah kehilangan data jika subsistem deteksi (YOLO) sedang mengalami perlambatan (*backpressure*).
 - **YOLOv8 & ByteTrack**: Membaca frame dari Kafka secara asinkron, mengenali jenis kendaraan, mengunci identitas unik (*track ID*) kendaraan, dan melacak pergerakannya.
 - **FastAPI Backend**: Sebagai gerbang API terpadu yang memanajemeni status detektor, menyajikan stream visual teranotasi MJPEG, dan menyediakan data analitik ke frontend.
+
+### 2.3 Desain Skalabilitas Multi-Kamera (Multi-Camera Ingestion)
+Sistem dirancang untuk mendukung skalabilitas multi-kamera secara efisien dengan strategi berikut:
+1. **Pemisahan Data via Metadata (`camera_id`)**: Setiap frame yang dikirim oleh Kafka Producer membawa payload terstruktur berisi `camera_id` (misalnya: `cam1` atau `cam2`), `timestamp`, `stream_url`, dan `frame_bytes`.
+2. **Optimasi Resource Memory (RAM 8GB)**: Alih-alih membuat satu instance consumer & model YOLOv8 per kamera (yang memakan banyak RAM), sistem ini menggunakan **Single Consumer multi-camera model**. Consumer mendengarkan frame dari semua kamera secara round-robin, lalu memprosesnya menggunakan model YOLOv8 yang dimuat sekali di memory. State pelacakan (ByteTrack) dipisahkan menggunakan dictionary terisolasi per `camera_id` guna mencegah pencampuran tracking objek.
+3. **Pemisahan Output Analytics**: Seluruh hasil deteksi dicatat ke dalam satu file Bronze Layer (`raw_detections.json`) dengan pembeda kolom `camera_id`. Spark Batch kemudian memproses data ini secara tersegregasi untuk menghasilkan file Gold Parquet terpisah atau terindeks berdasarkan `camera_id`, sehingga visualisasi dashboard di frontend bersifat mandiri untuk masing-masing kamera.
 
 ---
 
@@ -125,6 +128,12 @@ Pemrosesan batch dan agregasi analitik dilakukan oleh **Apache Spark (PySpark)**
      $$\text{IPI} = \min\left(10, (\text{Jumlah Pelanggaran} \times 0.4) + \left(\frac{\text{Durasi Rata-Rata (detik)}}{300}\right)\right)$$
    - **Analisis Dampak Kemacetan**: Mengelompokkan zona ke dalam tingkat prioritas tindakan (RENDAH, SEDANG, TINGGI) berdasarkan nilai IPI beserta rekomendasi kebijakan (misal: derek paksa atau pemasangan rambu tambahan).
    - **Temporal & Sektoral Analysis**: Mengagregasi pelanggaran per jam (`hourly_stats.parquet`), tren harian (`daily_trend.parquet`), dan distribusi kelas kendaraan (`vehicle_stats.parquet`).
+
+### 4.2 Konsistensi Waktu & Manajemen Timezone (Timezone Consistency)
+Untuk memastikan keandalan analisis tren harian dan jam rawan kemacetan, sistem ini menjamin konsistensi zona waktu (*timezone*) melalui pengaturan berikut:
+1. **Konfigurasi Spark Session**: Spark dikonfigurasi secara eksplisit menggunakan `.config("spark.sql.session.timeZone", "Asia/Jakarta")` pada file [spark_silver_gold.py](file:///d:/Kuliah/Semester%204/Big%20Data%20Dan%20Data%20Lakehouse/EAS%20BIG%20DATA/parkir-liar-detector/backend/spark_silver_gold.py). Hal ini memaksa seluruh pengolahan fungsi tanggal dan waktu di PySpark (seperti `hour()`, `date_format()`, dan fungsi casting timestamp) menggunakan zona waktu **WIB (Waktu Indonesia Barat / UTC+07:00)** secara konsisten.
+2. **Pencegahan Pergeseran Jam (Time-Shift)**: Langkah ini mencegah data bergeser ke UTC+00:00 saat diproses di Spark (terutama jika Spark dijalankan di VM/container dengan setelan default UTC), yang dapat merusak analisis jam sibuk pelanggaran (jam rawan) di dashboard analitik.
+3. **Sinkronisasi Detektor & Database**: Timestamp mentah yang dicatat oleh Kafka Producer menggunakan ISO format lokal (`datetime.now().isoformat()`), sehingga ketika diurai oleh Spark dan disimpan ke format Parquet, nilainya tetap sinkron dengan waktu nyata di lapangan (Yogyakarta).
 
 ---
 
