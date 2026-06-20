@@ -6,14 +6,40 @@ Sistem pemantauan dan deteksi pelanggaran parkir liar secara *real-time* berbasi
 
 ## 📝 Rubrik 1: Identifikasi Masalah & Latar Belakang
 
-### 1.1 Permasalahan Parkir Liar
-Parkir liar di bahu jalan merupakan salah satu penyebab utama kemacetan kronis di area perkotaan Indonesia. Dampak negatif dari parkir liar meliputi:
-- **Penyempitan Lajur Jalan**: Mengurangi kapasitas jalan (*road capacity*), menurunkan kecepatan rata-rata kendaraan, dan memicu penumpukan antrean lalu lintas.
-- **Keterbatasan Petugas**: Pemantauan manual oleh dinas perhubungan (Dishub) atau kepolisian sangat terbatas oleh waktu, tenaga, dan tidak dapat dilakukan secara 24/7 di seluruh titik rawan.
-- **Kurangnya Data Taktis**: Kebijakan penertiban jalan sering kali bersifat reaktif (hanya saat ada aduan masyarakat) karena pemerintah tidak memiliki data kuantitatif mengenai durasi rata-rata pelanggaran dan tingkat kerawanan lalu lintas secara periodik.
+1. Masalah parkir liar di Yogyakarta terus memburuk akibat ketimpangan ekstrem antara volume kendaraan (lebih dari 1 juta saat musim liburan berdasarkan detik.com) dengan kapasitas ruang parkir resmi yang sangat terbatas. Akibatnya, Menumpuknya parkir ilegal terjadi di lebih dari 130 ruas jalan(berdasarkan artikel pandangan jogja).
 
-### 1.2 Urgensi Solusi Big Data & AI
-Sistem ini dirancang untuk mengatasi permasalahan tersebut dengan melakukan otomatisasi pemantauan menggunakan CCTV kota, memproses jutaan event pendeteksian secara terdistribusi, mengelompokkannya ke dalam arsitektur Data Lakehouse, dan menganalisis prioritas tindakan menggunakan Apache Spark demi menghasilkan rekomendasi kebijakan berbasis data (*data-driven policy*).
+Pendekatan konvensional yang ada saat ini terbukti gagal menyelesaikan masalah karena beberapa gap operasional:
+
+- Penindakan bergantung pada laporan manual masyarakat dengan waktu respons 1 hingga 3 jam.
+- Jeda waktu penanganan mengakibatkan >50% pelanggar sudah kabur sebelum petugas tiba di lokasi.
+- Ketiadaan bukti digital membuat sanksi denda maksimal Rp 50.000.000 (Perda No. 2 Tahun 2019) tidak efektif memberikan efek jera.
+
+Sistem kami dibangun untuk menutup celah tersebut. Dengan memanfaatkan stream dari API CCTV yang diintegrasikan dengan deteksi Computer Vision, platform web ini secara otonom memantau titik rawan, menangkap snapshot bukti pelanggaran secara real-time, dan menyediakan dashboard statistik proaktif untuk mengarahkan operasi petugas secara presisi.
+
+2. Mengapa Big Data Diperlukan? (Kerangka 5V)
+Sistem web yang menarik umpan video langsung (Live Cam) dari API CCTV kota (seperti ATCS Dishub) dan memprosesnya dengan AI akan menghasilkan lalu lintas data berskala masif. 
+
+- Volume: Mengambil data (fetching) dari  API CCTV di seluruh Jogja berarti menampung gambar setiap harinya. Skala data video mentah dan snapshot ini lumayan besar dan membutuhkan manajemen penyimpanan yang terukur di backend.
+
+- Velocity: Data dari API CCTV masuk dalam bentuk streaming secara konstan (sekian frame per second). Model AI harus melakukan inferencing (mendeteksi kendaraan dan menghitung durasi berhenti) secara real-time (kecepatan tinggi) agar statistik di web dashboard selalu mutakhir tanpa penundaan.
+
+- Variety: Sistem ini harus sanggup menelan tipe data yang sangat bervariasi, aliran video tak terstruktur (RTSP/HTTP stream), gambar statis (snapshot pelanggaran), log semi-terstruktur (berkas JSON), hingga data terstruktur (statistik jumlah pelanggaran per jalan).
+
+- Veracity: Di jalanan, AI akan menghadapi noise yang tinggi—seperti pantulan cahaya malam hari, hujan, atau kendaraan yang tertutup (occluded) kendaraan lain. Big Data dibutuhkan untuk melatih dan menyaring data ini agar insight yang dihasilkan akurat, memastikan sistem bisa membedakan mobil yang terjebak macet dengan mobil yang sengaja parkir liar.
+
+- Value: Aliran data yang besar tidak ada gunanya tanpa visualisasi yang tepat. Melalui web dashboard, data itu diubah menjadi Value, seperti statistik live, grafik tren jam rawan, dan rekomendasi otomatis bagi aparat untuk melakukan penertiban secara presisi.
+
+Mengapa Sistem Saat Ini Belum Menyelesaikan Masalah?
+Sistem web berbasis AI yang kami rancang ini menutup celah besar (gap) dari metode penanganan yang saat ini dijalankan oleh pemerintah daerah:
+
+**Gap Pengumpulan Bukti** (Manual vs Bukti Digital Otomatis)
+- Kondisi Saat Ini: Penindakan hukum terhambat karena kendaraan sudah pergi saat petugas tiba
+- Solusi Sistem Web AI: AI secara otomatis menangkap (capture) plat nomor/kendaraan dari stream CCTV saat terdeteksi berhenti melampaui batas waktu yang ditentukan. Snapshot beserta timestamp-nya otomatis tersimpan di database web sebagai bukti mutlak.
+
+**Gap Pengambilan Keputusan** (Reaktif Berdasarkan Aduan vs Proaktif Berdasarkan Statistik)
+
+- Kondisi Saat Ini: Dishub dan Polisi seringkali bergerak berdasarkan laporan viral di media sosial atau E-Lapor (yang memakan waktu verifikasi), sehingga kemacetan terlanjur parah.
+- Solusi Sistem Web AI: Dashboard web menyajikan live footage cctv di lapangan. Petugas tidak perlu menunggu laporan; mereka bisa memantau tren yang muncul di monitor web dan mengirim personel sebelum kemacetan akibat parkir liar mengular.
 
 ---
 
@@ -66,7 +92,7 @@ Sistem ini dirancang menggunakan paradigma **Event-Driven Architecture (EDA)** b
 
 ---
 
-## 📝 Rubrik 3: Desain Data Lakehouse (Bronze, Silver, Gold Layer)
+## 📝 Rubrik 3: Implementasi Data Lakehouse (Bronze, Silver, Gold Layer)
 
 Untuk menyusun sistem pengolahan data yang rapi dan meminimalkan beban komputasi real-time, kami mengadopsi konsep **Data Lakehouse** berbasis penyimpanan file teroptimasi (**Parquet**).
 
@@ -81,7 +107,7 @@ Parquet adalah format file penyimpanan berbasis kolom (*columnar storage*) yang 
 
 ---
 
-## 📝 Rubrik 4: Teknis Analisis & Pemrosesan Big Data (Apache Spark)
+## 📝 Rubrik 4: Teknis Analisis & Kualitas Output (Apache Spark)
 
 Pemrosesan batch dan agregasi analitik dilakukan oleh **Apache Spark (PySpark)** secara terdistribusi. Spark memproses raw JSON dari Bronze Layer menjadi bentuk agregat terstruktur di Gold Layer.
 
@@ -191,3 +217,10 @@ Akses dashboard pada peramban Anda di: `http://localhost:8501`
 1.  **Alur CCTV Real-Time**: Tunjukkan video CCTV FMNoto langsung. Ketika mobil berhenti di zona merah, kotak YOLO berubah kuning (toleransi), lalu setelah melewati batas waktu menjadi merah (pelanggaran), memicu alarm, menyimpan screenshot bukti, dan data mentahnya masuk ke **Bronze Layer**.
 2.  **Peran Apache Spark (Lakehouse Batch)**: Jelaskan bahwa data Bronze yang sangat kotor disaring, dibersihkan dari duplikat, dan dihitung durasinya oleh **Apache Spark** menjadi **Silver Parquet**, kemudian diagregasi ke **Gold Parquet**. Tab dashboard Analytics memuat Parquet secara langsung sehingga performa dashboard sangat responsif dan ringan.
 3.  **Akurasi Sistem (Anti-False Alarm)**: Jelaskan 4 tingkat penyaringan sistem (Spasial Geofencing, Temporal Grace Period, Vector Tracking ByteTrack, dan Semantik YOLOv8) yang menjamin sistem tidak salah mendeteksi kemacetan biasa sebagai parkir liar.
+
+
+Sumber Artikel :
+https://www.detik.com/jogja/berita/d-8292990/4-juta-kendaraan-diprediksi-masuk-diy-saat-nataru-ternyata
+https://www.instagram.com/p/DSXBh1dE4bp/
+https://peraturan.bpk.go.id/Details/108354/perda-kota-yogyakarta-no-2-tahun-2019
+
