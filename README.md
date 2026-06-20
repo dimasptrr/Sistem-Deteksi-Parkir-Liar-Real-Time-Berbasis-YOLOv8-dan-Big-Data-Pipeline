@@ -15,7 +15,7 @@
 
 ## Introduction
 
-Sistem pemantauan dan deteksi pelanggaran parkir liar secara *real-time* berbasis kecerdasan buatan (*computer vision*) dengan arsitektur **Event-Driven Streaming** menggunakan **Apache Kafka**, penyimpanan data terstruktur **Data Lakehouse** (Bronze, Silver, Gold), pengolahan analitik data besar (**Big Data**) menggunakan **Apache Spark**, serta visualisasi antarmuka interaktif menggunakan **FastAPI, Streamlit, dan Chart.js**.
+**Parkir Liar Detector** adalah Sistem pemantauan dan deteksi pelanggaran parkir liar secara *real-time* berbasis kecerdasan buatan (*computer vision*) dengan arsitektur **Event-Driven Streaming** menggunakan **Apache Kafka**, penyimpanan data terstruktur **Data Lakehouse** (Bronze, Silver, Gold), pengolahan analitik data besar (**Big Data**) menggunakan **Apache Spark**, serta visualisasi antarmuka interaktif menggunakan **FastAPI, Streamlit, dan Chart.js**.
 
 ---
 
@@ -220,7 +220,7 @@ def point_to_zone(self, point):
             return zone_name  # titik di dalam polygon zona merah
     return None  # di luar zona → diabaikan total, tidak masuk pipeline
 ```
-Algoritma **Point-in-Polygon (PIP)** via `cv2.pointPolygonTest` mengecek apakah centroid bawah bounding box kendaraan berada di dalam polygon zona larangan yang digambar manual per kamera. Zona dapat diperbarui secara dinamis melalui web UI FastAPI.
+ Algoritma **Point-in-Polygon (PIP)** via `cv2.pointPolygonTest` mengecek apakah centroid bawah bounding box kendaraan berada di dalam polygon zona larangan yang digambar manual per kamera. Zona dapat diperbarui secara dinamis melalui web UI FastAPI.
 ---
 
 ### 2. **Inovasi 2: Temporal Filter (Double Threshold Duration)**
@@ -261,7 +261,7 @@ Tiga status visual yang ditampilkan di dashboard:
 **Implementasi (`bronze_detector.py`):**
 
 ```python
-# Instance ByteTracker terisolasi per kamera — tidak ada cross-contamination
+# Instance ByteTracker terisolasi per kamera, tidak ada cross-contamination
 self.trackers = {
     "cam1": sv.ByteTrack(),
     "cam2": sv.ByteTrack(),
@@ -295,7 +295,7 @@ VEHICLE_CLASS_IDS = {
     7: "truk"
 }
  
-# Filter diterapkan di level model.predict() — sebelum tracking maupun zona check
+# Filter diterapkan di level model.predict(), sebelum tracking maupun zona check
 results = self.model.predict(
     resized,
     classes=list(VEHICLE_CLASS_IDS.keys()),  # class 0 (person), 1 (bicycle), dll langsung dibuang
@@ -416,10 +416,19 @@ Akses dashboard di: `http://localhost:8501`
 
 ## Hasil Pengujian:
 
+#### Tampilan Live CCTV
 <img width="1600" height="889" alt="WhatsApp Image 2026-06-20 at 17 43 00" src="https://github.com/user-attachments/assets/cd5bcccc-dd18-4f67-8426-610c6d39051c" />
+
+#### Log Pelanggaran Liar
 <img width="1600" height="910" alt="WhatsApp Image 2026-06-20 at 17 43 00 (1)" src="https://github.com/user-attachments/assets/23ab4b24-1d21-405f-affd-20b4471f701a" />
+
+#### Spark Analytics
 <img width="1600" height="902" alt="WhatsApp Image 2026-06-20 at 17 43 01" src="https://github.com/user-attachments/assets/79d340eb-2df2-4c71-a075-22cf5f54b408" />
+
+#### Mekanisme Validitas Deteksi Sistem
 <img width="1600" height="875" alt="WhatsApp Image 2026-06-20 at 17 43 01 (2)" src="https://github.com/user-attachments/assets/8cda1427-ddf9-4b1d-bf1a-81478d10ae13" />
+
+#### Analisis Tingkat Pelanggaran dan Estimasi Dampak Kemacetan (per ruas jalan)
 <img width="1600" height="381" alt="WhatsApp Image 2026-06-20 at 17 43 01 (1)" src="https://github.com/user-attachments/assets/0ca6c04b-70f2-4798-acc8-f1cf9f3b0fc9" />
 
 
