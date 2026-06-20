@@ -1,22 +1,44 @@
-# 🚫 Parkir Liar Detector — Real-Time IoT & Big Data Lakehouse System
+# **Parkir Liar Detector - Real-Time IoT & Big Data Lakehouse System**
+
+## Kelompok 8 - Kelas B
+
+### Anggota:
+
+| No | Nama                        | NRP        |
+|----|-----------------------------|-----------|
+| 1  | Clarissa Aydin Rahmazea     | 5027241014 |
+| 2  | Mochkamad Maulana Syafaat   | 5027241021 |
+| 3  | Danuja Prasasta Bastu       | 5027241037 |
+| 4  | Raihan Fahri G              | 5027241061 |
+| 5  | Dimas Muhammad Putra        | 5027241076 |
+
+
+## Introduction
 
 Sistem pemantauan dan deteksi pelanggaran parkir liar secara *real-time* berbasis kecerdasan buatan (*computer vision*) dengan arsitektur **Event-Driven Streaming** menggunakan **Apache Kafka**, penyimpanan data terstruktur **Data Lakehouse** (Bronze, Silver, Gold), pengolahan analitik data besar (**Big Data**) menggunakan **Apache Spark**, serta visualisasi antarmuka interaktif menggunakan **FastAPI, Streamlit, dan Chart.js**.
 
 ---
 
-## 📝 Rubrik 1: Identifikasi Masalah & Latar Belakang
+## Rubrik 1: Identifikasi Masalah & Latar Belakang
 
-1. Masalah parkir liar di Yogyakarta terus memburuk akibat ketimpangan ekstrem antara volume kendaraan (lebih dari 1 juta saat musim liburan berdasarkan detik.com) dengan kapasitas ruang parkir resmi yang sangat terbatas. Akibatnya, Menumpuknya parkir ilegal terjadi di lebih dari 130 ruas jalan(berdasarkan artikel pandangan jogja).
+### 1.1 Konteks Masalah
+
+Masalah parkir liar di Yogyakarta terus memburuk akibat ketimpangan ekstrem antara volume kendaraan (lebih dari 1 juta saat musim liburan berdasarkan detik.com) dengan kapasitas ruang parkir resmi yang sangat terbatas. Akibatnya, Menumpuknya parkir ilegal terjadi di lebih dari 130 ruas jalan(berdasarkan artikel pandangan jogja).
+
+### 1.2 Gap Operasional Sistem Saat Ini
 
 Pendekatan konvensional yang ada saat ini terbukti gagal menyelesaikan masalah karena beberapa gap operasional:
 
-- Penindakan bergantung pada laporan manual masyarakat dengan waktu respons 1 hingga 3 jam.
-- Jeda waktu penanganan mengakibatkan >50% pelanggar sudah kabur sebelum petugas tiba di lokasi.
-- Ketiadaan bukti digital membuat sanksi denda maksimal Rp 50.000.000 (Perda No. 2 Tahun 2019) tidak efektif memberikan efek jera.
+| Gap | Kondisi Saat Ini | Dampak |
+|:----|:-----------------|:-------|
+| **Kecepatan Respons** | Penindakan bergantung pada laporan manual masyarakat | Waktu respons 1–3 jam; >50% pelanggar sudah kabur |
+| **Bukti Digital** | Tidak ada dokumentasi otomatis kendaraan pelanggar | Sanksi denda maksimal Rp 50.000.000 (Perda No. 2 Tahun 2019) tidak memberikan efek jera |
+| **Pengambilan Keputusan** | Bergerak reaktif berdasarkan laporan viral media sosial atau E-Lapor | Kemacetan terlanjur parah sebelum petugas tiba |
 
 Sistem kami dibangun untuk menutup celah tersebut. Dengan memanfaatkan stream dari API CCTV yang diintegrasikan dengan deteksi Computer Vision, platform web ini secara otonom memantau titik rawan, menangkap snapshot bukti pelanggaran secara real-time, dan menyediakan dashboard statistik proaktif untuk mengarahkan operasi petugas secara presisi.
 
-2. Mengapa Big Data Diperlukan? (Kerangka 5V)
+### 1.3 Mengapa Big Data Diperlukan? (Kerangka 5V)
+
 Sistem web yang menarik umpan video langsung (Live Cam) dari API CCTV kota (seperti ATCS Dishub) dan memprosesnya dengan AI akan menghasilkan lalu lintas data berskala masif. 
 
 - Volume: Mengambil data (fetching) dari  API CCTV di seluruh Jogja berarti menampung gambar setiap harinya. Skala data video mentah dan snapshot ini lumayan besar dan membutuhkan manajemen penyimpanan yang terukur di backend.
@@ -29,6 +51,8 @@ Sistem web yang menarik umpan video langsung (Live Cam) dari API CCTV kota (sepe
 
 - Value: Aliran data yang besar tidak ada gunanya tanpa visualisasi yang tepat. Melalui web dashboard, data itu diubah menjadi Value, seperti statistik live, grafik tren jam rawan, dan rekomendasi otomatis bagi aparat untuk melakukan penertiban secara presisi.
 
+### 1.4 Solusi yang Dibangun
+
 Mengapa Sistem Saat Ini Belum Menyelesaikan Masalah?
 Sistem web berbasis AI yang kami rancang ini menutup celah besar (gap) dari metode penanganan yang saat ini dijalankan oleh pemerintah daerah:
 
@@ -40,7 +64,10 @@ Sistem web berbasis AI yang kami rancang ini menutup celah besar (gap) dari meto
 
 - Kondisi Saat Ini: Dishub dan Polisi seringkali bergerak berdasarkan laporan viral di media sosial atau E-Lapor (yang memakan waktu verifikasi), sehingga kemacetan terlanjur parah.
 - Solusi Sistem Web AI: Dashboard web menyajikan live footage cctv di lapangan. Petugas tidak perlu menunggu laporan; mereka bisa memantau tren yang muncul di monitor web dan mengirim personel sebelum kemacetan akibat parkir liar mengular.
-## 📝 Rubrik 2: Desain Infrastruktur & Arsitektur Terdistribusi (Event-Driven)
+
+---
+
+## Rubrik 2: Desain Infrastruktur & Arsitektur Terdistribusi (Event-Driven)
 
 Sistem ini dirancang menggunakan paradigma **Event-Driven Architecture (EDA)** berlatensi rendah untuk memastikan pemrosesan data berjalan secara terdistribusi dan *scalable* (siap menangani ratusan kamera secara simultan).
 
@@ -88,16 +115,37 @@ Sistem ini dirancang menggunakan paradigma **Event-Driven Architecture (EDA)** b
 - **FastAPI Backend**: Sebagai gerbang API terpadu yang memanajemeni status detektor, menyajikan stream visual teranotasi MJPEG, dan menyediakan data analitik ke frontend.
 
 ### 2.3 Desain Skalabilitas Multi-Kamera (Multi-Camera Ingestion)
-Sistem dirancang untuk mendukung skalabilitas multi-kamera secara efisien dengan strategi berikut:
-1. **Pemisahan Data via Metadata (`camera_id`)**: Setiap frame yang dikirim oleh Kafka Producer membawa payload terstruktur berisi `camera_id` (misalnya: `cam1` atau `cam2`), `timestamp`, `stream_url`, dan `frame_bytes`.
-2. **Optimasi Resource Memory (RAM 8GB)**: Alih-alih membuat satu instance consumer & model YOLOv8 per kamera (yang memakan banyak RAM), sistem ini menggunakan **Single Consumer multi-camera model**. Consumer mendengarkan frame dari semua kamera secara round-robin, lalu memprosesnya menggunakan model YOLOv8 yang dimuat sekali di memory. State pelacakan (ByteTrack) dipisahkan menggunakan dictionary terisolasi per `camera_id` guna mencegah pencampuran tracking objek.
-3. **Pemisahan Output Analytics**: Seluruh hasil deteksi dicatat ke dalam satu file Bronze Layer (`raw_detections.json`) dengan pembeda kolom `camera_id`. Spark Batch kemudian memproses data ini secara tersegregasi untuk menghasilkan file Gold Parquet terpisah atau terindeks berdasarkan `camera_id`, sehingga visualisasi dashboard di frontend bersifat mandiri untuk masing-masing kamera.
 
+Sistem dirancang untuk mendukung skalabilitas multi-kamera secara efisien dengan strategi berikut:
+
+**Strategi 1: Pemisahan Data via Metadata `camera_id`**
+Setiap frame yang dikirim Kafka Producer membawa payload terstruktur berisi `camera_id`, `timestamp`, `stream_url`, dan `frame_bytes`, sehingga data dari berbagai kamera dapat diproses dalam satu pipeline tanpa tercampur.
+ 
+**Strategi 2: Single Consumer Multi-Camera (RAM Optimization)**
+Alih-alih membuat instance consumer dan model YOLOv8 terpisah per kamera (yang memakan RAM berlipat), sistem menggunakan satu proses consumer tunggal yang mendengarkan frame dari semua kamera secara *round-robin*. Model YOLOv8 hanya dimuat sekali ke memori, sedangkan state pelacakan ByteTrack dipisahkan menggunakan dictionary terisolasi per `camera_id`.
+ 
+```python
+# Inisialisasi ByteTracker terisolasi per kamera — tidak ada cross-contamination
+self.trackers = {
+    "cam1": sv.ByteTrack(),
+    "cam2": sv.ByteTrack(),
+}
+ 
+def _track_detections(self, detections, camera_id):
+    tracker = self.trackers.get(camera_id)
+    return tracker.update_with_detections(detections)
+```
+ 
+**Strategi 3: Pemisahan Output Analytics per `camera_id`**
+Seluruh hasil deteksi dicatat ke satu file Bronze Layer dengan pembeda kolom `camera_id`. Spark memproses data ini secara tersegregasi untuk menghasilkan Gold Parquet terindeks per `camera_id`, sehingga visualisasi dashboard bersifat mandiri per kamera.
+ 
 ---
 
-## 📝 Rubrik 3: Implementasi Data Lakehouse (Bronze, Silver, Gold Layer)
+## Rubrik 3: Implementasi Data Lakehouse (Bronze, Silver, Gold Layer)
 
 Untuk menyusun sistem pengolahan data yang rapi dan meminimalkan beban komputasi real-time, kami mengadopsi konsep **Data Lakehouse** berbasis penyimpanan file teroptimasi (**Parquet**).
+
+### 3.1 Struktur 3 Layer
 
 | Layer Lakehouse | Format Data | Lokasi File | Deskripsi & Fungsi |
 | :--- | :--- | :--- | :--- |
@@ -105,12 +153,22 @@ Untuk menyusun sistem pengolahan data yang rapi dan meminimalkan beban komputasi
 | **🥈 Silver Layer** <br>(Clean Data) | Parquet (`.parquet`) | `data/silver/violations_clean.parquet` | Data hasil pembersihan oleh Spark: Hanya menyimpan kendaraan yang terbukti berhenti di zona larangan parkir (`left`/`right`) dengan durasi diam $\ge 2$ menit (120 detik), serta membersihkan duplikasi track ID. |
 | **🥇 Gold Layer** <br>(Aggregated Data) | Parquet (`.parquet`) | `data/gold/*.parquet` | Hasil agregasi data Silver oleh Apache Spark yang siap dikueri secara instan oleh dashboard grafik untuk efisiensi performa tinggi. |
 
-### Mengapa Menggunakan Parquet untuk Silver & Gold?
+### 3.2 Mengapa Menggunakan Parquet untuk Silver & Gold?
+
 Parquet adalah format file penyimpanan berbasis kolom (*columnar storage*) yang sangat terkompresi. Membaca data Parquet berkali-kali lebih cepat daripada CSV atau JSON konvensional karena sistem hanya memuat kolom yang dibutuhkan (misal: hanya kolom `timestamp` dan `duration_seconds`) tanpa perlu memindai seluruh baris file.
+
+### 3.5 File Gold Layer yang Dihasilkan
+
+| File | Isi |
+|:-----|:----|
+| `zone_analysis_cam1.parquet`, `zone_analysis_cam2.parquet` | IPI, dampak kemacetan, rekomendasi per zona per kamera |
+| `hourly_stats_cam1.parquet`, `hourly_stats_cam2.parquet` | Distribusi pelanggaran per jam (0–23) per kamera |
+| `daily_trend_cam1.parquet`, `daily_trend_cam2.parquet` | Tren jumlah pelanggaran per hari per kamera |
+| `vehicle_stats_cam1.parquet`, `vehicle_stats_cam2.parquet` | Distribusi jenis kendaraan (mobil, motor, bus, truk) per kamera |
 
 ---
 
-## 📝 Rubrik 4: Teknis Analisis & Kualitas Output (Apache Spark)
+## Rubrik 4: Teknis Analisis & Kualitas Output (Apache Spark)
 
 Pemrosesan batch dan agregasi analitik dilakukan oleh **Apache Spark (PySpark)** secara terdistribusi. Spark memproses raw JSON dari Bronze Layer menjadi bentuk agregat terstruktur di Gold Layer.
 
@@ -137,25 +195,119 @@ Untuk memastikan keandalan analisis tren harian dan jam rawan kemacetan, sistem 
 
 ---
 
-## 📝 Rubrik 5: Inovasi Solusi & Sistem Pencegah False Alarm
+## Rubrik 5: Inovasi Solusi & Sistem Pencegah False Alarm
 
-Aplikasi ini menghadirkan inovasi berupa **Multi-Level Filtering System** untuk menghindari alarm palsu (*false alarm*), seperti mendeteksi mobil macet atau pejalan kaki sebagai pelanggar parkir.
-
-1. **Inovasi 1: Spasial Filter (Geofencing Polygon)**
-   Menggunakan algoritma *Point-in-Polygon* (PIP) di [zone_manager.py](file:///d:/Kuliah/Semester%204/Big%20Data%20Dan%20Data%20Lakehouse/EAS%20BIG%20DATA/parkir-liar-detector/backend/zone_manager.py) untuk memastikan koordinat centroid kendaraan benar-benar berada di dalam batas bahu jalan dilarang parkir yang digambar secara kustom.
-2. **Inovasi 2: Temporal Filter (Double Threshold Duration)**
-   Membedakan status kendaraan berdasarkan durasi berhenti:
-   - `< 5 detik`: Kendaraan bergerak normal (Abaikan).
-   - `5 - 120 detik` (Toleransi): Status visual berwarna **Kuning** (Peringatan awal).
-   - `> 120 detik` (Pelanggaran): Status berwarna **Merah** (Pelanggaran resmi, otomatis mengambil screenshot bukti dan dicatat ke Lakehouse).
-3. **Inovasi 3: Tracking Filter (ByteTrack)**
-   Mencegah hilangnya jejak identitas kendaraan akibat oklusi (terhalang pohon atau kendaraan lain melintas). ID kendaraan dikunci secara konsisten untuk mencegah pendeteksian berulang (*double logging*).
-4. **Inovasi 4: Semantik Filter (YOLOv8 Target)**
-   Menyaring kelas deteksi. Sistem hanya mengidentifikasi objek bertipe kendaraan (`mobil`, `motor`, `bus`, `truk`) dan mengabaikan objek lain seperti pejalan kaki atau bayangan.
+### 5.1 Latar Belakang Inovasi
+ 
+Tantangan terbesar sistem deteksi berbasis computer vision adalah **false alarm** — mobil yang macet terlihat seperti parkir liar, pejalan kaki ikut terdeteksi, atau kendaraan yang sempat terhalang dihitung dua kali. Sistem ini menghadirkan inovasi berupa **Multi-Level Filtering System** dengan 4 filter berlapis, masing-masing menangani satu sumber error yang berbeda.
 
 ---
 
-## 📝 Rubrik 6: Demo Sistem & Panduan Langkah-Langkah
+### 1. **Inovasi 1: Spasial Filter (Geofencing Polygon)**
+   Menggunakan algoritma *Point-in-Polygon* (PIP) di [zone_manager.py](file:///d:/Kuliah/Semester%204/Big%20Data%20Dan%20Data%20Lakehouse/EAS%20BIG%20DATA/parkir-liar-detector/backend/zone_manager.py) untuk memastikan koordinat centroid kendaraan benar-benar berada di dalam batas bahu jalan dilarang parkir yang digambar secara kustom.
+
+**Implementasi (`zone_manager.py`):**
+ 
+```python
+def point_to_zone(self, point):
+    x, y = point  # centroid bawah bounding box kendaraan
+    for zone_name, polygon in self._zones.items():
+        polygon_array = np.array(polygon, dtype=np.int32)
+        result = cv2.pointPolygonTest(
+            polygon_array, (float(x), float(y)), False
+        )
+        if result >= 0:
+            return zone_name  # titik di dalam polygon zona merah
+    return None  # di luar zona → diabaikan total, tidak masuk pipeline
+```
+Algoritma **Point-in-Polygon (PIP)** via `cv2.pointPolygonTest` mengecek apakah centroid bawah bounding box kendaraan berada di dalam polygon zona larangan yang digambar manual per kamera. Zona dapat diperbarui secara dinamis melalui web UI FastAPI.
+---
+
+### 2. **Inovasi 2: Temporal Filter (Double Threshold Duration)**
+**Masalah yang diselesaikan:** Tanpa filter ini, mobil yang berhenti di lampu merah atau menurunkan penumpang akan langsung dianggap parkir liar.
+
+**Implementasi (`bronze_detector.py`):**
+
+```python
+# Konfigurasi threshold
+stationary_grace_seconds: float = 5.0    # batas minimum "diam"
+violation_seconds: int = 120             # batas pelanggaran resmi
+ 
+# Logika status (dari _state_status):
+if stationary_duration < stationary_grace_seconds:
+    state.status = "green"   # kendaraan bergerak normal → abaikan
+ 
+elif stationary_duration < violation_seconds:
+    state.status = "yellow"  # 5–120 detik → KUNING (peringatan awal)
+ 
+else:
+    state.status = "red"     # > 120 detik → MERAH (pelanggaran resmi)
+    if not state.violation_logged:
+        cv2.imwrite(str(screenshot_path), resized)  # simpan bukti foto
+        self.logger.log_violation(...)
+        state.violation_logged = True  # flag cegah double-logging
+```
+
+Tiga status visual yang ditampilkan di dashboard:
+- **Hijau** (`< 5 detik`): kendaraan bergerak, diabaikan
+- **Kuning** (`5–120 detik`): berhenti, masih dalam toleransi
+- **Merah** (`> 120 detik`): pelanggaran resmi, screenshot otomatis tersimpan
+
+---
+
+### 3. **Inovasi 3: Tracking Filter (ByteTrack)**
+**Masalah yang diselesaikan:** Tanpa ByteTrack, jika ada kendaraan lain lewat dan menutupi sebentar, sistem menganggap itu kendaraan baru, timer di-reset dari nol, dan kendaraan yang sama bisa *double-logged*.
+
+**Implementasi (`bronze_detector.py`):**
+
+```python
+# Instance ByteTracker terisolasi per kamera — tidak ada cross-contamination
+self.trackers = {
+    "cam1": sv.ByteTrack(),
+    "cam2": sv.ByteTrack(),
+}
+ 
+# State aktif juga dipisah per kamera
+self.active_states_dict = {
+    "cam1": {},  # {track_id: VehicleState}
+    "cam2": {},
+}
+ 
+def _track_detections(self, detections: sv.Detections, camera_id: str):
+    tracker = self.trackers.get(camera_id, self.tracker)
+    return tracker.update_with_detections(detections)
+```
+ByteTrack mengunci ID kendaraan meski sempat hilang dari frame karena terhalang pohon atau kendaraan lain. Satu kendaraan = satu ID konsisten = timer tidak pernah reset = tidak ada *double logging*.
+
+--- 
+
+4. **Inovasi 4: Semantik Filter (YOLOv8 Target)**
+**Masalah yang diselesaikan:** Tanpa filter ini, pejalan kaki yang berdiri di pinggir jalan atau bayangan pohon bisa masuk ke pipeline deteksi.
+ 
+**Implementasi (`bronze_detector.py`):**
+ 
+```python
+# Hanya 4 kelas kendaraan yang diizinkan masuk pipeline
+VEHICLE_CLASS_IDS = {
+    2: "mobil",
+    3: "motor",
+    5: "bus",
+    7: "truk"
+}
+ 
+# Filter diterapkan di level model.predict() — sebelum tracking maupun zona check
+results = self.model.predict(
+    resized,
+    classes=list(VEHICLE_CLASS_IDS.keys()),  # class 0 (person), 1 (bicycle), dll langsung dibuang
+    conf=self.confidence,
+    verbose=False
+)
+```
+Filter ini bekerja di level **paling awal** — sebelum ByteTrack, sebelum Point-in-Polygon. Objek selain 4 kelas kendaraan tidak pernah sampai ke pipeline berikutnya.
+ 
+---
+
+## Rubrik 6: Demo Sistem & Panduan Langkah-Langkah
 
 ### 6.1 Peta Fungsi Kode Program & Logika Krusial (Codebase Mapping)
 
@@ -260,12 +412,54 @@ Buka terminal baru dan jalankan Streamlit:
 ```bash
 streamlit run frontend/app.py
 ```
-Akses dashboard pada peramban Anda di: `http://localhost:8501`
+Akses dashboard di: `http://localhost:8501`
 
-### 6.3 Skenario Demonstrasi di Depan Penguji
-1.  **Alur CCTV Real-Time**: Tunjukkan video CCTV FMNoto langsung. Ketika mobil berhenti di zona merah, kotak YOLO berubah kuning (toleransi), lalu setelah melewati batas waktu menjadi merah (pelanggaran), memicu alarm, menyimpan screenshot bukti, dan data mentahnya masuk ke **Bronze Layer**.
-2.  **Peran Apache Spark (Lakehouse Batch)**: Jelaskan bahwa data Bronze yang sangat kotor disaring, dibersihkan dari duplikat, dan dihitung durasinya oleh **Apache Spark** menjadi **Silver Parquet**, kemudian diagregasi ke **Gold Parquet**. Tab dashboard Analytics memuat Parquet secara langsung sehingga performa dashboard sangat responsif dan ringan.
-3.  **Akurasi Sistem (Anti-False Alarm)**: Jelaskan 4 tingkat penyaringan sistem (Spasial Geofencing, Temporal Grace Period, Vector Tracking ByteTrack, dan Semantik YOLOv8) yang menjamin sistem tidak salah mendeteksi kemacetan biasa sebagai parkir liar.
+## Hasil Pengujian:
+
+<img width="1600" height="889" alt="WhatsApp Image 2026-06-20 at 17 43 00" src="https://github.com/user-attachments/assets/cd5bcccc-dd18-4f67-8426-610c6d39051c" />
+<img width="1600" height="910" alt="WhatsApp Image 2026-06-20 at 17 43 00 (1)" src="https://github.com/user-attachments/assets/23ab4b24-1d21-405f-affd-20b4471f701a" />
+<img width="1600" height="902" alt="WhatsApp Image 2026-06-20 at 17 43 01" src="https://github.com/user-attachments/assets/79d340eb-2df2-4c71-a075-22cf5f54b408" />
+<img width="1600" height="875" alt="WhatsApp Image 2026-06-20 at 17 43 01 (2)" src="https://github.com/user-attachments/assets/8cda1427-ddf9-4b1d-bf1a-81478d10ae13" />
+<img width="1600" height="381" alt="WhatsApp Image 2026-06-20 at 17 43 01 (1)" src="https://github.com/user-attachments/assets/0ca6c04b-70f2-4798-acc8-f1cf9f3b0fc9" />
+
+
+## Tech Stack & Dependensi
+ 
+```
+┌─────────────────────────────────────────────────────────┐
+│                    FRONTEND LAYER                        │
+│  Streamlit (UI Framework) + Chart.js (Visualisasi)      │
+│  Glassmorphism HTML/CSS + Real-Time AJAX Polling        │
+└──────────────────────┬──────────────────────────────────┘
+                       │
+┌──────────────────────▼──────────────────────────────────┐
+│                    API GATEWAY                           │
+│  FastAPI + Uvicorn  (MJPEG Stream + REST API)           │
+│  PyArrow / Pandas   (Parquet Reader)                    │
+└──────────────────────┬──────────────────────────────────┘
+                       │
+┌──────────────────────▼──────────────────────────────────┐
+│                  STREAMING LAYER                         │
+│  Apache Kafka (Docker) — Message Broker                 │
+│  FFmpeg — HLS Stream Capture (subprocess)               │
+│  confluent-kafka — Python Producer/Consumer             │
+└──────────────────────┬──────────────────────────────────┘
+                       │
+┌──────────────────────▼──────────────────────────────────┐
+│                    AI / CV LAYER                         │
+│  YOLOv8n (Ultralytics) — Object Detection               │
+│  ByteTrack (supervision) — Multi-Object Tracking        │
+│  OpenCV — Frame Processing + Point-in-Polygon           │
+└──────────────────────┬──────────────────────────────────┘
+                       │
+┌──────────────────────▼──────────────────────────────────┐
+│                  DATA LAKEHOUSE                          │
+│  Bronze: JSON Lines  (raw_detections.json)              │
+│  Silver: Parquet     (violations_clean.parquet)         │
+│  Gold:   Parquet     (zone_analysis, hourly, daily, ... │
+│  Engine: Apache Spark PySpark (local[*])                │
+└─────────────────────────────────────────────────────────┘
+```
 
 
 Sumber Artikel :
