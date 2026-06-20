@@ -124,10 +124,15 @@ class ParkingDetector:
         track_timeout_seconds: float = 20.0,
         motion_grace_frames: int = 10,
         use_kafka: bool = False,
+        camera_id: str = "cam1",
     ) -> None:
         self.stream_url = stream_url
         self.use_kafka = use_kafka
-        self.model = YOLO(model_name)
+        self.camera_id = camera_id
+        if model_name is not None:
+            self.model = YOLO(model_name)
+        else:
+            self.model = None
         self.confidence = confidence
         if device is not None:
             self.device = device
@@ -145,7 +150,54 @@ class ParkingDetector:
         self.track_timeout_seconds = track_timeout_seconds
         self.motion_grace_frames = motion_grace_frames
 
-        self.tracker = sv.ByteTrack()
+        # State tracking split per camera_id to prevent collision
+        self.trackers = {
+            "cam1": sv.ByteTrack(),
+            "cam2": sv.ByteTrack(),
+        }
+        self.active_states_dict = {
+            "cam1": {},
+            "cam2": {},
+        }
+        self.all_seen_track_ids_dict = {
+            "cam1": set(),
+            "cam2": set(),
+        }
+        self.latest_stats_dict = {
+            "cam1": {
+                "total_tracked": 0,
+                "stationary_count": 0,
+                "violations_today": 0,
+                "moving_count": 0,
+            },
+            "cam2": {
+                "total_tracked": 0,
+                "stationary_count": 0,
+                "violations_today": 0,
+                "moving_count": 0,
+            },
+        }
+        self.latest_alert_dict = {
+            "cam1": None,
+            "cam2": None,
+        }
+        self.latest_frame_bgr_dict = {
+            "cam1": None,
+            "cam2": None,
+        }
+        self.latest_annotated_bgr_dict = {
+            "cam1": None,
+            "cam2": None,
+        }
+
+        # Keep original single-cam variables as fallback / pointing to the last active cam
+        self.tracker = self.trackers["cam1"]
+        self.active_states = self.active_states_dict["cam1"]
+        self.all_seen_track_ids = self.all_seen_track_ids_dict["cam1"]
+        self.latest_stats = self.latest_stats_dict["cam1"]
+        self.latest_alert = None
+        self.latest_frame_bgr = None
+        self.latest_annotated_bgr = None
         self.logger = ViolationLogger(
             csv_path=Path(__file__).resolve().with_name("violations_log.csv"),
             screenshot_dir=Path(__file__).resolve().with_name("violations"),
@@ -164,18 +216,6 @@ class ParkingDetector:
         self.running = False
         self.thread: Optional[threading.Thread] = None
         self.lock = threading.Lock()
-
-        self.latest_frame_bgr: Optional[np.ndarray] = None
-        self.latest_annotated_bgr: Optional[np.ndarray] = None
-        self.latest_stats: Dict[str, int] = {
-            "total_tracked": 0,
-            "stationary_count": 0,
-            "violations_today": 0,
-            "moving_count": 0,
-        }
-        self.latest_alert: Optional[str] = None
-        self.active_states: Dict[int, VehicleState] = {}
-        self.all_seen_track_ids: set[int] = set()
 
         self._auto_zone_initialized = False
         self._current_frame_size = (1280, 720)
@@ -293,14 +333,15 @@ class ParkingDetector:
         new_height = int(height * ratio)
         return cv2.resize(frame, (self.display_width, new_height), interpolation=cv2.INTER_AREA)
 
-    def _track_detections(self, detections: sv.Detections) -> sv.Detections:
+    def _track_detections(self, detections: sv.Detections, camera_id: str = "cam1") -> sv.Detections:
         if detections is None or len(detections) == 0:
             return detections
 
-        if hasattr(self.tracker, "update_with_detections"):
-            return self.tracker.update_with_detections(detections)
-        if hasattr(self.tracker, "update"):
-            return self.tracker.update(detections)
+        tracker = self.trackers.get(camera_id, self.tracker)
+        if hasattr(tracker, "update_with_detections"):
+            return tracker.update_with_detections(detections)
+        if hasattr(tracker, "update"):
+            return tracker.update(detections)
         return detections
 
     @staticmethod
@@ -348,8 +389,10 @@ class ParkingDetector:
         center: Tuple[float, float],
         now: float,
         zone_name: Optional[str],
+        camera_id: str = "cam1",
     ) -> VehicleState:
-        state = self.active_states.get(track_id)
+        active_states = self.active_states_dict.get(camera_id, self.active_states)
+        state = active_states.get(track_id)
         if state is None:
             state = VehicleState(
                 track_id=track_id,
@@ -360,7 +403,7 @@ class ParkingDetector:
                 last_motion_ts=now,
                 zone_name=zone_name,
             )
-            self.active_states[track_id] = state
+            active_states[track_id] = state
         else:
             # 1. Stable speed calculation using a historical reference point (closest to 0.5s ago)
             speed = 0.0
@@ -436,11 +479,13 @@ class ParkingDetector:
         state.status = "green"
         return state.status
 
-    def _cleanup_states(self, now: float) -> None:
-        stale_ids = [track_id for track_id, state in self.active_states.items() if now - state.last_seen_ts > self.track_timeout_seconds]
+    def _cleanup_states(self, now: float, camera_id: str = "cam1") -> None:
+        active_states = self.active_states_dict.get(camera_id, self.active_states)
+        all_seen_track_ids = self.all_seen_track_ids_dict.get(camera_id, self.all_seen_track_ids)
+        stale_ids = [track_id for track_id, state in active_states.items() if now - state.last_seen_ts > self.track_timeout_seconds]
         for track_id in stale_ids:
-            self.active_states.pop(track_id, None)
-            self.all_seen_track_ids.discard(track_id)
+            active_states.pop(track_id, None)
+            all_seen_track_ids.discard(track_id)
 
     def _draw_detection(self, frame: np.ndarray, box: np.ndarray, label: str, color: Tuple[int, int, int]) -> None:
         x1, y1, x2, y2 = [int(v) for v in box]
@@ -451,7 +496,7 @@ class ParkingDetector:
         cv2.rectangle(frame, (x1, label_y - text_height - 8), (x1 + text_width + 8, label_y + 4), color, -1)
         cv2.putText(frame, label, (x1 + 4, label_y - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 0), 2, cv2.LINE_AA)
 
-    def process_frame(self, frame_bgr: np.ndarray) -> np.ndarray:
+    def process_frame(self, frame_bgr: np.ndarray, camera_id: str = "cam1") -> np.ndarray:
         resized = self._resize_for_cpu(frame_bgr)
         self._ensure_default_zones(resized.shape[1], resized.shape[0])
 
@@ -467,21 +512,31 @@ class ParkingDetector:
         )
 
         now = time.time()
+        all_seen_track_ids = self.all_seen_track_ids_dict.get(camera_id, self.all_seen_track_ids)
+        
         if not results:
             with self.lock:
-                self.latest_frame_bgr = resized
-                self.latest_annotated_bgr = annotated
-                self.latest_stats = {
-                    "total_tracked": len(self.all_seen_track_ids),
+                self.latest_frame_bgr_dict[camera_id] = resized
+                self.latest_annotated_bgr_dict[camera_id] = annotated
+                self.latest_stats_dict[camera_id] = {
+                    "total_tracked": len(all_seen_track_ids),
                     "stationary_count": 0,
-                    "violations_today": self.logger.today_count(),
+                    "violations_today": self.logger.today_count(camera_id),
                     "moving_count": 0,
                 }
+                self.latest_alert_dict[camera_id] = None
+                
+                # Fallback pointers for backward compatibility
+                self.latest_frame_bgr = resized
+                self.latest_annotated_bgr = annotated
+                self.latest_stats = self.latest_stats_dict[camera_id]
                 self.latest_alert = None
+                self.all_seen_track_ids = all_seen_track_ids
+                self.active_states = self.active_states_dict.get(camera_id, self.active_states)
             return annotated
 
         detections = sv.Detections.from_ultralytics(results[0])
-        detections = self._track_detections(detections)
+        detections = self._track_detections(detections, camera_id)
 
         # Record Bronze Layer data (frame metadata + raw detections)
         record = {
@@ -489,7 +544,8 @@ class ParkingDetector:
             "stream_url": self.stream_url,
             "frame_width": resized.shape[1],
             "frame_height": resized.shape[0],
-            "detections": []
+            "detections": [],
+            "camera_id": camera_id
         }
         
         if len(detections) > 0 and detections.xyxy is not None:
@@ -513,9 +569,8 @@ class ParkingDetector:
                 
         with self.bronze_lock:
             self.bronze_buffer.append(record)
-            if len(self.bronze_buffer) >= 50:
+            if len(self.bronze_buffer) >= 5:
                 self._flush_bronze_buffer()
-
 
         alert_found = False
         stationary_count = 0
@@ -537,9 +592,10 @@ class ParkingDetector:
                     center=center,
                     now=now,
                     zone_name=zone_name,
+                    camera_id=camera_id
                 )
                 status = self._state_status(state, now)
-                self.all_seen_track_ids.add(tracker_id)
+                all_seen_track_ids.add(tracker_id)
                 active_count += 1
 
                 if status == "red":
@@ -548,7 +604,7 @@ class ParkingDetector:
                     if not state.violation_logged:
                         entered_at = datetime.fromtimestamp(state.stationary_since or now)
                         screenshot_timestamp = datetime.now()
-                        screenshot_path = self.logger.screenshot_dir / f"violation_{entered_at.strftime('%Y%m%d_%H%M%S')}_id{tracker_id}.jpg"
+                        screenshot_path = self.logger.screenshot_dir / f"violation_{entered_at.strftime('%Y%m%d_%H%M%S')}_id{tracker_id}_{camera_id}.jpg"
                         cv2.imwrite(str(screenshot_path), resized)
                         self.logger.log_violation(
                             timestamp_entry=entered_at,
@@ -558,6 +614,7 @@ class ParkingDetector:
                             track_id=tracker_id,
                             zone_name=zone_name or "unknown",
                             screenshot_path=str(screenshot_path),
+                            camera_id=camera_id
                         )
                         state.violation_logged = True
 
@@ -580,19 +637,27 @@ class ParkingDetector:
                 label = f"ID {tracker_id} | {state.class_name} | {status.upper()} | {duration_seconds/60:.1f}m"
                 self._draw_detection(annotated, box, label, color)
 
-        self._cleanup_states(now)
+        self._cleanup_states(now, camera_id)
 
         stats = {
-            "total_tracked": len(self.all_seen_track_ids),
+            "total_tracked": len(all_seen_track_ids),
             "stationary_count": stationary_count,
-            "violations_today": self.logger.today_count(),
+            "violations_today": self.logger.today_count(camera_id),
             "moving_count": moving_count,
         }
         with self.lock:
+            self.latest_frame_bgr_dict[camera_id] = resized
+            self.latest_annotated_bgr_dict[camera_id] = annotated
+            self.latest_stats_dict[camera_id] = stats
+            self.latest_alert_dict[camera_id] = "PARKIR LIAR" if alert_found else None
+            
+            # Fallback pointers for backward compatibility
             self.latest_frame_bgr = resized
             self.latest_annotated_bgr = annotated
             self.latest_stats = stats
-            self.latest_alert = "PARKIR LIAR" if alert_found else None
+            self.latest_alert = self.latest_alert_dict[camera_id]
+            self.all_seen_track_ids = all_seen_track_ids
+            self.active_states = self.active_states_dict.get(camera_id, self.active_states)
         return annotated
 
     def _capture_loop(self) -> None:
@@ -637,7 +702,7 @@ class ParkingDetector:
                 continue
 
             try:
-                self.process_frame(frame)
+                self.process_frame(frame, camera_id=self.camera_id)
             except Exception:
                 LOGGER.exception("Gagal memproses frame CCTV.")
                 time.sleep(0.1)

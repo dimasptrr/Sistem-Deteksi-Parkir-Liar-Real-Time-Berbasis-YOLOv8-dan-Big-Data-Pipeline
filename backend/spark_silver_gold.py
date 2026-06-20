@@ -20,7 +20,6 @@ def main():
     os.environ["PYSPARK_PYTHON"] = sys.executable
     os.environ["PYSPARK_DRIVER_PYTHON"] = sys.executable
 
-
     try:
         from pyspark.sql import SparkSession
         from pyspark.sql.functions import col, explode, min, max, avg, count, round as spark_round, when, to_timestamp, hour, date_format, lit, concat
@@ -43,8 +42,8 @@ def main():
     spark = SparkSession.builder \
         .appName("IllegalParkingLakehouseProcessor") \
         .master("local[*]") \
-        .config("spark.driver.memory", "2g") \
-        .config("spark.sql.session.timeZone", "UTC") \
+        .config("spark.driver.memory", "1g") \
+        .config("spark.sql.session.timeZone", "Asia/Jakarta") \
         .getOrCreate()
 
     try:
@@ -52,7 +51,6 @@ def main():
         # 1. BRONZE LAYER -> SILVER LAYER (Cleaning & Validation)
         # ----------------------------------------------------
         print("\n[*] Membaca data mentah dari Bronze Layer...")
-        # PySpark membaca format line-delimited JSON secara otomatis
         bronze_df = spark.read.json(str(bronze_path))
         
         if bronze_df.count() == 0:
@@ -61,16 +59,21 @@ def main():
             return
             
         print("[*] Melakukan flattening dan penyaringan data...")
+        # Check if camera_id exists in Bronze layer schema
+        has_camera_id = "camera_id" in bronze_df.columns
+
         # Flatten array detections
         df_flat = bronze_df.select(
             col("timestamp"),
             col("stream_url"),
             col("frame_width"),
             col("frame_height"),
+            (col("camera_id") if has_camera_id else lit("cam1")).alias("camera_id"),
             explode("detections").alias("det")
         ).select(
             col("timestamp"),
             col("stream_url"),
+            col("camera_id"),
             col("det.track_id").alias("track_id"),
             col("det.class_id").alias("class_id"),
             col("det.class_name").alias("vehicle_type"),
@@ -81,12 +84,37 @@ def main():
         # Filter: Hanya kendaraan di zona larangan (left/right)
         df_flat = df_flat.filter(col("zone_name").isNotNull() & (col("zone_name") != "") & (col("zone_name") != "null") & (col("zone_name") != "None"))
         
+        from pyspark.sql.window import Window
+        from pyspark.sql.functions import lag, sum as spark_sum
+
         # Konversi timestamp string ke data type Timestamp
         df_flat = df_flat.withColumn("ts", to_timestamp(col("timestamp")))
         
-        # Group by track_id & zone_name untuk menghitung durasi diam kendaraan
-        # track_id dianggap unik per session deteksi
-        silver_df = df_flat.groupBy("track_id", "zone_name", "vehicle_type", "stream_url") \
+        # Definisikan window partition untuk mendeteksi gap waktu per track_id
+        window_spec = Window.partitionBy("camera_id", "track_id", "zone_name").orderBy("ts")
+        
+        # Hitung selisih waktu (dalam detik) dengan frame sebelumnya
+        df_with_lag = df_flat.withColumn("prev_ts", lag("ts").over(window_spec))
+        df_with_gap = df_with_lag.withColumn(
+            "gap_seconds", 
+            col("ts").cast("long") - col("prev_ts").cast("long")
+        )
+        
+        # Jika gap > 120 detik (2 menit) atau data pertama, tandai sebagai sesi baru (is_new_session = 1)
+        df_with_session_flag = df_with_gap.withColumn(
+            "is_new_session",
+            when(col("prev_ts").isNull() | (col("gap_seconds") > 120), 1).otherwise(0)
+        )
+        
+        # Lakukan cumulative sum untuk membuat session_id yang unik per track_id
+        session_window = Window.partitionBy("camera_id", "track_id", "zone_name").orderBy("ts").rowsBetween(Window.unboundedPreceding, Window.currentRow)
+        df_with_session_id = df_with_session_flag.withColumn(
+            "session_id",
+            spark_sum("is_new_session").over(session_window)
+        )
+        
+        # Group by termasuk session_id agar pencatatan per sesi parkir terpisah
+        silver_df = df_with_session_id.groupBy("track_id", "zone_name", "vehicle_type", "stream_url", "camera_id", "session_id") \
             .agg(
                 min("ts").alias("timestamp_entry"),
                 max("ts").alias("timestamp_violation"),
@@ -96,7 +124,7 @@ def main():
         # Filter: Hanya kendaraan yang diam/berhenti >= 120 detik (2 menit)
         silver_df = silver_df.filter(col("duration_seconds") >= 120)
         
-        # Buat screenshot_path dinamis berdasarkan timestamp_entry dan track_id
+        # Buat screenshot_path dinamis berdasarkan timestamp_entry, track_id, dan camera_id
         violations_dir_literal = str(PROJECT_ROOT / "backend" / "violations") + "\\"
         silver_df = silver_df.withColumn(
             "screenshot_path",
@@ -106,15 +134,19 @@ def main():
                 date_format(col("timestamp_entry"), "yyyyMMdd_HHmmss"),
                 lit("_id"),
                 col("track_id"),
+                lit("_"),
+                col("camera_id"),
                 lit(".jpg")
             )
         )
         
-        print(f"[*] Menulis hasil bersih ke Silver Layer: {silver_path}")
-        silver_df.toPandas().to_parquet(str(silver_path))
+        import pandas as pd
 
-        
-        total_violations = silver_df.count()
+        print(f"[*] Menulis hasil bersih ke Silver Layer: {silver_path}")
+        silver_pd = silver_df.toPandas()
+        silver_pd.to_parquet(str(silver_path))
+
+        total_violations = len(silver_pd)
         print(f"[SUCCESS] Silver Layer berhasil diperbarui. Jumlah pelanggaran bersih: {total_violations}")
         
         if total_violations == 0:
@@ -123,152 +155,145 @@ def main():
             return
 
         # ----------------------------------------------------
-        # 2. SILVER LAYER -> GOLD LAYER (Aggregation)
+        # 2. SILVER LAYER -> GOLD LAYER (Aggregation per camera_id)
         # ----------------------------------------------------
         print("\n[*] Menghitung agregasi Gold Layer...")
         
-        # A. IPI PER ZONE
-        # Rumus: min(10.0, count * 0.4 + avg_duration / 300)
-        zone_agg = silver_df.groupBy("zone_name").agg(
-            count("*").alias("jumlah_pelanggaran"),
-            avg("duration_seconds").alias("durasi_rata_detik")
+        # A. IPI PER ZONE (Grouped by camera_id and zone_name)
+        zone_agg_pd = silver_pd.groupby(["camera_id", "zone_name"]).agg(
+            jumlah_pelanggaran=('track_id', 'count'),
+            durasi_rata_detik=('duration_seconds', 'mean')
+        ).reset_index()
+        
+        zone_agg_pd["indeks_parkir_liar"] = (zone_agg_pd["jumlah_pelanggaran"] * 0.4 + zone_agg_pd["durasi_rata_detik"] / 300.0)
+        zone_agg_pd["indeks_parkir_liar"] = zone_agg_pd["indeks_parkir_liar"].clip(upper=10.0).round(1)
+        
+        zone_agg_pd["dampak_kemacetan"] = zone_agg_pd["indeks_parkir_liar"].apply(
+            lambda x: "RENDAH (LOW)" if x < 3.0 else ("SEDANG (MEDIUM)" if x < 7.0 else "TINGGI (HIGH)")
+        )
+        zone_agg_pd["dampak_deskripsi"] = zone_agg_pd["indeks_parkir_liar"].apply(
+            lambda x: "Kendaraan berhenti tidak mengganggu arus lalu lintas secara signifikan." if x < 3.0 
+            else ("Bahu jalan terhambat, menyebabkan perlambatan arus lalu lintas utama." if x < 7.0 
+            else "Penyumbatan parah lajur jalan, memicu kemacetan ekor panjang di jam-jam sibuk.")
+        )
+        zone_agg_pd["prioritas_penanganan"] = zone_agg_pd["indeks_parkir_liar"].apply(
+            lambda x: "RENDAH" if x < 3.0 else ("SEDANG" if x < 7.0 else "TINGGI")
+        )
+        zone_agg_pd["rekomendasi"] = zone_agg_pd["indeks_parkir_liar"].apply(
+            lambda x: "Lakukan pemantauan rutin via kamera CCTV, pastikan marka jalan tetap bersih." if x < 3.0
+            else ("Pasang rambu portabel 'Dilarang Parkir' dan lakukan patroli berkala oleh petugas perhubungan." if x < 7.0
+            else "Lakukan penertiban/derek langsung, pasang pembatas fisik (bollard atau guardrail) untuk mencegah parkir.")
         )
         
-        zone_gold = zone_agg.withColumn(
-            "indeks_parkir_liar",
-            spark_round(
-                when((col("jumlah_pelanggaran") * 0.4 + col("durasi_rata_detik") / 300.0) > 10.0, 10.0)
-                .otherwise(col("jumlah_pelanggaran") * 0.4 + col("durasi_rata_detik") / 300.0),
-                1
-            )
-        ).withColumn(
-            "dampak_kemacetan",
-            when(col("indeks_parkir_liar") < 3.0, "RENDAH (LOW)")
-            .when(col("indeks_parkir_liar") < 7.0, "SEDANG (MEDIUM)")
-            .otherwise("TINGGI (HIGH)")
-        ).withColumn(
-            "dampak_deskripsi",
-            when(col("indeks_parkir_liar") < 3.0, "Kendaraan berhenti tidak mengganggu arus lalu lintas secara signifikan.")
-            .when(col("indeks_parkir_liar") < 7.0, "Bahu jalan terhambat, menyebabkan perlambatan arus lalu lintas utama.")
-            .otherwise("Penyumbatan parah lajur jalan, memicu kemacetan ekor panjang di jam-jam sibuk.")
-        ).withColumn(
-            "prioritas_penanganan",
-            when(col("indeks_parkir_liar") < 3.0, "RENDAH")
-            .when(col("indeks_parkir_liar") < 7.0, "SEDANG")
-            .otherwise("TINGGI")
-        ).withColumn(
-            "rekomendasi",
-            when(col("indeks_parkir_liar") < 3.0, "Lakukan pemantauan rutin via kamera CCTV, pastikan marka jalan tetap bersih.")
-            .when(col("indeks_parkir_liar") < 7.0, "Pasang rambu portabel 'Dilarang Parkir' dan lakukan patroli berkala oleh petugas perhubungan.")
-            .otherwise("Lakukan penertiban/derek langsung, pasang pembatas fisik (bollard atau guardrail) untuk mencegah parkir.")
-        ).withColumnRenamed("zone_name", "zona")
+        zone_agg_pd = zone_agg_pd.rename(columns={"zone_name": "zona"})
+        zone_agg_pd["zona"] = zone_agg_pd["zona"].str.upper()
         
-        # Ubah zona menjadi uppercase untuk keselarasan frontend
-        from pyspark.sql.functions import upper
-        zone_gold = zone_gold.withColumn("zona", upper(col("zona")))
-        
-        # Pastikan LEFT dan RIGHT selalu ada di hasil akhir
-        default_data = [
-            ("LEFT", 0, 0.0, 0.0, "RENDAH (LOW)", "Kendaraan berhenti tidak mengganggu arus lalu lintas secara signifikan.", "RENDAH", "Lakukan pemantauan rutin via kamera CCTV, pastikan marka jalan tetap bersih."),
-            ("RIGHT", 0, 0.0, 0.0, "RENDAH (LOW)", "Kendaraan berhenti tidak mengganggu arus lalu lintas secara signifikan.", "RENDAH", "Lakukan pemantauan rutin via kamera CCTV, pastikan marka jalan tetap bersih.")
-        ]
-        default_df = spark.createDataFrame(default_data, schema=["zona", "jumlah_pelanggaran", "durasi_rata_detik", "indeks_parkir_liar", "dampak_kemacetan", "dampak_deskripsi", "prioritas_penanganan", "rekomendasi"])
-        
-        present_zones = [row["zona"] for row in zone_gold.select("zona").collect()]
-        missing_df = default_df.filter(~col("zona").isin(present_zones))
-        zone_gold = zone_gold.union(missing_df)
-        
-        zone_gold.toPandas().to_parquet(str(gold_dir / "ipi_per_zone.parquet"))
+        # Ensure LEFT and RIGHT always exist for both cam1 and cam2
+        default_rows = []
+        for c in ["cam1", "cam2"]:
+            for z in ["LEFT", "RIGHT"]:
+                if zone_agg_pd[(zone_agg_pd["camera_id"] == c) & (zone_agg_pd["zona"] == z)].empty:
+                    default_rows.append({
+                        "camera_id": c,
+                        "zona": z,
+                        "jumlah_pelanggaran": 0,
+                        "durasi_rata_detik": 0.0,
+                        "indeks_parkir_liar": 0.0,
+                        "dampak_kemacetan": "RENDAH (LOW)",
+                        "dampak_deskripsi": "Kendaraan berhenti tidak mengganggu arus lalu lintas secara signifikan.",
+                        "prioritas_penanganan": "RENDAH",
+                        "rekomendasi": "Lakukan pemantauan rutin via kamera CCTV, pastikan marka jalan tetap bersih."
+                    })
+        if default_rows:
+            zone_agg_pd = pd.concat([zone_agg_pd, pd.DataFrame(default_rows)], ignore_index=True)
+            
+        zone_agg_pd.to_parquet(str(gold_dir / "ipi_per_zone.parquet"))
         print("[*] Gold Layer: ipi_per_zone.parquet diperbarui.")
 
-        # B. HOURLY STATS (Peak Hours)
-        hourly_gold = silver_df.withColumn("hour", hour(col("timestamp_violation"))) \
-            .groupBy("hour") \
-            .agg(count("*").alias("count")) \
-            .orderBy("hour")
-        hourly_gold.toPandas().to_parquet(str(gold_dir / "hourly_stats.parquet"))
+        # B. HOURLY STATS (Peak Hours per camera_id)
+        silver_pd["timestamp_violation"] = pd.to_datetime(silver_pd["timestamp_violation"])
+        silver_pd["hour"] = silver_pd["timestamp_violation"].dt.hour
+        
+        hourly_gold_pd = silver_pd.groupby(["camera_id", "hour"]).size().reset_index(name="count")
+        hourly_gold_pd = hourly_gold_pd.sort_values(["camera_id", "hour"])
+        hourly_gold_pd.to_parquet(str(gold_dir / "hourly_stats.parquet"))
         print("[*] Gold Layer: hourly_stats.parquet diperbarui.")
 
-        # C. DAILY TREND
-        daily_gold = silver_df.withColumn("tanggal", date_format(col("timestamp_violation"), "yyyy-MM-dd")) \
-            .groupBy("tanggal") \
-            .agg(count("*").alias("jumlah")) \
-            .orderBy("tanggal")
-        daily_gold.toPandas().to_parquet(str(gold_dir / "daily_trend.parquet"))
+        # C. DAILY TREND (per camera_id)
+        silver_pd["tanggal"] = silver_pd["timestamp_violation"].dt.strftime("%Y-%m-%d")
+        daily_gold_pd = silver_pd.groupby(["camera_id", "tanggal"]).size().reset_index(name="jumlah")
+        daily_gold_pd = daily_gold_pd.sort_values(["camera_id", "tanggal"])
+        daily_gold_pd.to_parquet(str(gold_dir / "daily_trend.parquet"))
         print("[*] Gold Layer: daily_trend.parquet diperbarui.")
 
-        # D. VEHICLE STATS (Vehicle Type Distribution)
-        vehicle_gold = silver_df.groupBy("vehicle_type") \
-            .agg(count("*").alias("count"))
-        vehicle_gold.toPandas().to_parquet(str(gold_dir / "vehicle_stats.parquet"))
+        # D. VEHICLE STATS (Vehicle Type Distribution per camera_id)
+        vehicle_gold_pd = silver_pd.groupby(["camera_id", "vehicle_type"]).size().reset_index(name="count")
+        vehicle_gold_pd.to_parquet(str(gold_dir / "vehicle_stats.parquet"))
         print("[*] Gold Layer: vehicle_stats.parquet diperbarui.")
 
         # ----------------------------------------------------
-        # 3. EXPORT SUMMARY JSON (For dashboard metadata backwards-compatibility)
+        # 3. EXPORT SUMMARY JSON (Grouped by camera_id)
         # ----------------------------------------------------
-        print("\n[*] Membuat ringkasan JSON hasil analisis batch...")
+        print("\n[*] Membuat ringkasan JSON hasil analisis batch per camera...")
         
-        # Hitung ringkasan statistik
-        stats_summary = silver_df.select(
-            count("*").alias("total"),
-            avg("duration_seconds").alias("avg_duration")
-        ).collect()[0]
-        
-        total_pelanggaran = int(stats_summary["total"])
-        durasi_rata_detik_total = float(stats_summary["avg_duration"]) if stats_summary["avg_duration"] is not None else 0.0
-        
-        # Ekstrak data jam rawan
-        hourly_collected = hourly_gold.collect()
-        distribusi_jam = [0] * 24
-        for row in hourly_collected:
-            h = int(row["hour"])
-            if 0 <= h < 24:
-                distribusi_jam[h] = int(row["count"])
-                
-        # Cari jam puncak kemacetan / parkir liar
-        peak_hour = 0
-        max_count = -1
-        for h, c in enumerate(distribusi_jam):
-            if c > max_count:
-                max_count = c
-                peak_hour = h
-        jam_rawan = f"{peak_hour:02d}:00 - {(peak_hour+1)%24:02d}:00"
-        
-        # Ekstrak tren harian
-        daily_collected = daily_gold.collect()
-        tren_pelanggaran = [{"tanggal": str(row["tanggal"]), "jumlah": int(row["jumlah"])} for row in daily_collected]
-        
-        # Ekstrak distribusi kendaraan
-        vehicle_collected = vehicle_gold.collect()
-        distribusi_kendaraan = {row["vehicle_type"]: int(row["count"]) for row in vehicle_collected}
-        
-        # Ekstrak analisis zona
-        zone_collected = zone_gold.collect()
-        analisis_zona = []
-        for row in zone_collected:
-            analisis_zona.append({
-                "zona": row["zona"],
-                "jumlah_pelanggaran": int(row["jumlah_pelanggaran"]),
-                "durasi_rata_detik": round(float(row["durasi_rata_detik"]), 1),
-                "indeks_parkir_liar": float(row["indeks_parkir_liar"]),
-                "dampak_kemacetan": row["dampak_kemacetan"],
-                "dampak_deskripsi": row["dampak_deskripsi"],
-                "prioritas_penanganan": row["prioritas_penanganan"],
-                "rekomendasi": row["rekomendasi"]
-            })
+        results = {}
+        for cam in ["cam1", "cam2"]:
+            cam_silver = silver_pd[silver_pd["camera_id"] == cam]
+            total_pelanggaran = len(cam_silver)
             
-        results = {
-            "status": "success",
-            "spark_processed": True,
-            "total_pelanggaran": total_pelanggaran,
-            "durasi_rata_detik_total": round(durasi_rata_detik_total, 1),
-            "jam_rawan": jam_rawan,
-            "jam_rawan_jam": peak_hour,
-            "distribusi_jam": distribusi_jam,
-            "distribusi_kendaraan": distribusi_kendaraan,
-            "tren_pelanggaran": tren_pelanggaran,
-            "analisis_zona": analisis_zona
-        }
+            durasi_rata_detik_total = float(cam_silver["duration_seconds"].mean()) if total_pelanggaran > 0 else 0.0
+            
+            # Hourly stats for this camera
+            cam_hourly = hourly_gold_pd[hourly_gold_pd["camera_id"] == cam]
+            distribusi_jam = [0] * 24
+            for _, row in cam_hourly.iterrows():
+                h = int(row["hour"])
+                if 0 <= h < 24:
+                    distribusi_jam[h] = int(row["count"])
+                    
+            peak_hour = 0
+            max_count = -1
+            for h, c in enumerate(distribusi_jam):
+                if c > max_count:
+                    max_count = c
+                    peak_hour = h
+            jam_rawan = f"{peak_hour:02d}:00 - {(peak_hour+1)%24:02d}:00"
+            
+            # Daily stats for this camera
+            cam_daily = daily_gold_pd[daily_gold_pd["camera_id"] == cam]
+            tren_pelanggaran = [{"tanggal": str(row["tanggal"]), "jumlah": int(row["jumlah"])} for _, row in cam_daily.iterrows()]
+            
+            # Vehicle stats for this camera
+            cam_vehicle = vehicle_gold_pd[vehicle_gold_pd["camera_id"] == cam]
+            distribusi_kendaraan = {str(row["vehicle_type"]): int(row["count"]) for _, row in cam_vehicle.iterrows()}
+            
+            # Zone stats for this camera
+            cam_zone = zone_agg_pd[zone_agg_pd["camera_id"] == cam]
+            analisis_zona = []
+            for _, row in cam_zone.iterrows():
+                analisis_zona.append({
+                    "zona": str(row["zona"]),
+                    "jumlah_pelanggaran": int(row["jumlah_pelanggaran"]),
+                    "durasi_rata_detik": round(float(row["durasi_rata_detik"]), 1),
+                    "indeks_parkir_liar": float(row["indeks_parkir_liar"]),
+                    "dampak_kemacetan": str(row["dampak_kemacetan"]),
+                    "dampak_deskripsi": str(row["dampak_deskripsi"]),
+                    "prioritas_penanganan": str(row["prioritas_penanganan"]),
+                    "rekomendasi": str(row["rekomendasi"])
+                })
+                
+            results[cam] = {
+                "status": "success",
+                "spark_processed": True,
+                "total_pelanggaran": total_pelanggaran,
+                "durasi_rata_detik_total": round(durasi_rata_detik_total, 1),
+                "jam_rawan": jam_rawan,
+                "jam_rawan_jam": peak_hour,
+                "distribusi_jam": distribusi_jam,
+                "distribusi_kendaraan": distribusi_kendaraan,
+                "tren_pelanggaran": tren_pelanggaran,
+                "analisis_zona": analisis_zona
+            }
         
         output_json_path = PROJECT_ROOT / "backend" / "spark_analytics_results.json"
         with open(output_json_path, "w", encoding="utf-8") as f:

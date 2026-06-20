@@ -154,21 +154,31 @@ Buat data historis tiruan ke dalam Bronze Layer agar grafik dashboard langsung t
     ```bash
     python backend/generate_mock_bronze.py
     ```
-2.  **Jalankan Spark Job (Bronze -> Silver -> Gold)**:
+2.  **Sinkronisasi dengan violations_log.csv**:
+    Jika Anda memiliki rekaman deteksi real-time dari log CSV yang ingin dimasukkan ke dalam visualisasi analitik Spark, jalankan:
+    ```bash
+    python backend/sync_bronze_with_csv.py
+    ```
+3.  **Jalankan Spark Job (Bronze -> Silver -> Gold)**:
     ```bash
     python backend/spark_silver_gold.py
     ```
 
 #### Langkah 4: Jalankan Real-Time Streaming Pipeline
-Buka dua terminal terpisah untuk mengalirkan video HLS CCTV FMNoto secara *live*:
-*   **Terminal 1 (Kafka Producer)**:
+Buka tiga terminal terpisah untuk mengalirkan video HLS CCTV Cam 1 dan Cam 2 secara *live*:
+*   **Terminal 1 (Kafka Producer - Cam 1)**:
     ```bash
-    python backend/kafka_producer.py
+    python backend/kafka_producer.py --camera_id cam1
     ```
-*   **Terminal 2 (Kafka Consumer + YOLO)**:
+*   **Terminal 2 (Kafka Producer - Cam 2)**:
+    ```bash
+    python backend/kafka_producer.py --camera_id cam2
+    ```
+*   **Terminal 3 (Kafka Consumer + YOLO)**:
     ```bash
     python backend/kafka_consumer.py
     ```
+    *Catatan RAM 8GB Optimization: Sistem ini menggunakan 1 proses consumer tunggal dengan 1 model YOLOv8 yang di-load sekali di memory. Consumer ini mendengarkan frame dari kedua kamera sekaligus secara round-robin, lalu memisahkan tracking state menggunakan dictionary per camera_id dan membagikannya ke FastAPI server via file disk. Hal ini mencegah memory leak atau pemakaian RAM berlebih karena tidak memuat model YOLO dua kali.*
 
 #### Langkah 5: Jalankan Dashboard Web
 Buka terminal baru dan jalankan Streamlit:

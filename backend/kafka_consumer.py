@@ -40,7 +40,7 @@ def main():
         "--topic",
         type=str,
         default=KAFKA_TOPIC,
-        help="Nama Kafka topic"
+        help="Nama Kafka topic (bisa dipisah koma untuk multiple)"
     )
     parser.add_argument(
         "--group_id",
@@ -55,7 +55,12 @@ def main():
     )
     args = parser.parse_args()
 
-    LOGGER.info(f"Memulai Kafka Consumer dengan Broker: {args.broker}, Topic: {args.topic}")
+    # Tentukan topic yang akan di-subscribe (mendukung 2 CCTV sekaligus)
+    topics = [t.strip() for t in args.topic.split(",")]
+    if len(topics) == 1 and topics[0] == KAFKA_TOPIC:
+        topics = ["cctv-frames-cam1", "cctv-frames-cam2"]
+
+    LOGGER.info(f"Memulai Kafka Consumer dengan Broker: {args.broker}, Topics: {topics}")
 
     # Impor confluent_kafka di sini
     try:
@@ -64,13 +69,11 @@ def main():
         LOGGER.error("Library 'confluent-kafka' belum diinstal. Jalankan 'pip install -r requirements.txt'")
         sys.exit(1)
 
-    # Inisialisasi ParkingDetector
-    # Kita tidak memanggil detector.start() karena capture thread-nya tidak kita butuhkan;
-    # kita akan menyuapi frame ke detector.process_frame() secara manual dari Kafka Consumer.
+    # Inisialisasi ParkingDetector dengan 1 model YOLO untuk hemat RAM
     LOGGER.info("Menginisialisasi ParkingDetector (YOLOv8 + ByteTrack)...")
     try:
         detector = ParkingDetector(
-            stream_url=args.topic,  # Nama topic sebagai penanda sumber
+            stream_url="cctv-kafka-stream",  # Penanda sumber umum
             model_name=str(PROJECT_ROOT / "yolov8n.pt"),
             confidence=0.35,
             display_width=960,
@@ -78,7 +81,6 @@ def main():
             stationary_grace_seconds=5.0,
             violation_seconds=15 * 60,
         )
-        # Panggil ensuransi zona default dengan dimensi frame standar
         detector._ensure_default_zones(960, 540)
     except Exception as e:
         LOGGER.error(f"Gagal menginisialisasi detector: {e}")
@@ -96,8 +98,8 @@ def main():
 
     try:
         consumer = Consumer(conf)
-        consumer.subscribe([args.topic])
-        LOGGER.info(f"Berhasil berlangganan ke Kafka topic '{args.topic}'")
+        consumer.subscribe(topics)
+        LOGGER.info(f"Berhasil berlangganan ke Kafka topics {topics}")
     except Exception as e:
         LOGGER.error(f"Gagal membuat Kafka Consumer: {e}")
         sys.exit(1)
@@ -108,22 +110,23 @@ def main():
             msg = consumer.poll(timeout=1.0)
 
             if msg is None:
-                # Timeout poll, terus loop
                 continue
 
             if msg.error():
                 if msg.error().code() == KafkaError._PARTITION_EOF:
-                    # Akhir partisi tercapai, lanjutkan
                     continue
                 else:
                     LOGGER.error(f"Kafka Error: {msg.error()}")
                     break
 
             try:
+                # Tentukan camera_id asal frame dari topic pesan
+                topic_name = msg.topic()
+                camera_id = "cam2" if "cam2" in topic_name else "cam1"
+
                 # Decode JSON payload
                 payload = json.loads(msg.value().decode('utf-8'))
                 
-                # Mendapatkan metadata dari payload
                 timestamp = payload.get("timestamp")
                 width = payload.get("width")
                 height = payload.get("height")
@@ -131,7 +134,7 @@ def main():
                 frame_data_b64 = payload.get("frame_data")
 
                 if not frame_data_b64:
-                    LOGGER.warning("Menerima pesan tanpa data frame gambar.")
+                    LOGGER.warning(f"Menerima pesan tanpa data frame gambar dari {topic_name}.")
                     continue
 
                 # Dekode Base64 kembali ke bytes JPEG
@@ -146,26 +149,55 @@ def main():
                     LOGGER.error("Gagal mendekode bytes JPEG ke frame BGR.")
                     continue
 
-                # Jalankan logika deteksi parkir liar YOLOv8 + ByteTrack
-                annotated_frame = detector.process_frame(frame_bgr)
+                # Jalankan logika deteksi parkir liar YOLOv8 + ByteTrack per camera_id
+                annotated_frame = detector.process_frame(frame_bgr, camera_id=camera_id)
 
                 # Dapatkan status statistik terbaru
-                stats = detector.latest_stats
-                alert = detector.latest_alert
+                stats = detector.latest_stats_dict.get(camera_id, {})
+                alert = detector.latest_alert_dict.get(camera_id)
                 
                 # Print status ringkas ke konsol
                 alert_status = f" | [ALERT: {alert}]" if alert else ""
                 LOGGER.info(
-                    f"Frame dari {stream_url} | "
-                    f"Dipantau: {stats['total_tracked']} | "
-                    f"Diam: {stats['stationary_count']} | "
-                    f"Pelanggaran Hari Ini: {stats['violations_today']}{alert_status}"
+                    f"Frame {camera_id.upper()} dari {stream_url} | "
+                    f"Dipantau: {stats.get('total_tracked', 0)} | "
+                    f"Diam: {stats.get('stationary_count', 0)} | "
+                    f"Pelanggaran Hari Ini: {stats.get('violations_today', 0)}{alert_status}"
                 )
+
+                # Tulis annotated frame ke file JPG agar server.py bisa baca & stream ke web UI
+                frame_path = PROJECT_ROOT / "backend" / f"latest_frame_{camera_id}.jpg"
+                try:
+                    cv2.imwrite(str(frame_path), annotated_frame)
+                except Exception as e:
+                    LOGGER.error(f"Gagal menulis file visual frame {camera_id}: {e}")
+
+                # Update status stats terpusat di latest_stats.json untuk UI
+                stats_path = PROJECT_ROOT / "backend" / "latest_stats.json"
+                existing_stats = {}
+                if stats_path.exists():
+                    try:
+                        with open(stats_path, "r", encoding="utf-8") as f:
+                            existing_stats = json.load(f)
+                    except Exception:
+                        pass
+                
+                existing_stats[camera_id] = {
+                    "stats": stats,
+                    "alert": alert,
+                    "custom_zones": detector.zone_manager.is_custom(),
+                    "zone_json": detector.zone_manager.to_json()
+                }
+                
+                try:
+                    with open(stats_path, "w", encoding="utf-8") as f:
+                        json.dump(existing_stats, f, indent=2)
+                except Exception as e:
+                    LOGGER.error(f"Gagal menulis stats file: {e}")
 
                 # Tampilkan visualisasi jika tidak dalam mode headless (no_gui)
                 if not args.no_gui:
                     cv2.imshow("Deteksi Parkir Liar (Kafka Consumer)", annotated_frame)
-                    # Menunggu tombol 'q' ditekan untuk keluar
                     if cv2.waitKey(1) & 0xFF == ord('q'):
                         LOGGER.info("Tombol 'q' ditekan. Keluar dari consumer...")
                         break

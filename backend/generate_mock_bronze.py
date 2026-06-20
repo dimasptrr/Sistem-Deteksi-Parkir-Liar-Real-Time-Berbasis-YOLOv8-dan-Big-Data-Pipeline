@@ -43,6 +43,9 @@ def main():
         track_counter += 1
         zone = random.choice(ZONES)
         
+        # Alternate cameras
+        camera_id = "cam1" if i % 2 == 0 else "cam2"
+        
         # Left zone might have slightly higher duration
         if zone == "left" and vehicle == "mobil":
             duration = random.randint(300, 1800)
@@ -62,6 +65,7 @@ def main():
                 "stream_url": STREAM_URL,
                 "frame_width": 960,
                 "frame_height": 540,
+                "camera_id": camera_id,
                 "detections": [{
                     "track_id": track_id,
                     "class_id": 2 if vehicle == "mobil" else (3 if vehicle == "motor" else (5 if vehicle == "bus" else 7)),
@@ -88,6 +92,7 @@ def main():
         track_id = track_counter
         track_counter += 1
         zone = random.choice(ZONES + [None]) # some outside zones
+        camera_id = "cam1" if i % 2 == 0 else "cam2"
         
         num_frames = max(1, duration // 5)
         for f in range(num_frames):
@@ -102,6 +107,7 @@ def main():
                 "stream_url": STREAM_URL,
                 "frame_width": 960,
                 "frame_height": 540,
+                "camera_id": camera_id,
                 "detections": [{
                     "track_id": track_id,
                     "class_id": 2 if vehicle == "mobil" else (3 if vehicle == "motor" else (5 if vehicle == "bus" else 7)),

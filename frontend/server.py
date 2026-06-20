@@ -5,12 +5,14 @@ import logging
 import os
 import sys
 import threading
+import json
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 import cv2
+import numpy as np
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -32,12 +34,14 @@ logging.basicConfig(level=logging.INFO)
 class AppState:
     def __init__(self):
         self.stream_url = "https://cctv.jogjaprov.go.id/cctv-proxy/atcs-kota/FMNoto.stream/playlist.m3u8"
+        self.active_camera_id = "cam1"
         self.detector: Optional[ParkingDetector] = None
         self.initializing = False
         self.lock = threading.Lock()
 
-    def start_detector(self):
+    def start_detector(self, camera_id: str = "cam1"):
         with self.lock:
+            self.active_camera_id = camera_id
             if self.detector is not None:
                 try:
                     self.detector.stop()
@@ -48,21 +52,27 @@ class AppState:
             self.initializing = True
 
             def bg_init():
-                LOGGER.info(f"Starting ParkingDetector with stream URL: {self.stream_url} in background")
+                LOGGER.info(f"Starting ParkingDetector with stream URL: {self.stream_url} (Camera: {self.active_camera_id}) in background")
                 # Deteksi jika input stream diarahkan untuk menggunakan Kafka
                 use_kafka = "kafka" in self.stream_url.lower() or "cctv-frames" in self.stream_url.lower()
                 try:
+                    # JANGAN load YOLOv8 model di FastAPI process jika menggunakan Kafka untuk menghemat RAM!
+                    # Cukup set model_name=None agar model tidak dimuat di memory.
                     detector = ParkingDetector(
                         stream_url=self.stream_url,
-                        model_name=str(PROJECT_ROOT / "yolov8n.pt"),
+                        model_name=str(PROJECT_ROOT / "yolov8n.pt") if not use_kafka else None,
                         confidence=0.35,
                         display_width=960,
                         stationary_speed_threshold=12.0,
                         stationary_grace_seconds=5.0,
                         violation_seconds=2 * 60,
                         use_kafka=use_kafka,
+                        camera_id=self.active_camera_id,
                     )
-                    detector.start()
+                    # Hanya panggil detector.start() jika bukan Kafka mode.
+                    # Di Kafka mode, background consumer yang bertugas memproses frame.
+                    if not use_kafka:
+                        detector.start()
                     with self.lock:
                         self.detector = detector
                 except Exception as e:
@@ -115,21 +125,47 @@ async def read_index():
 
 # Streaming endpoint for annotated MJPEG video stream
 @app.get("/video_feed")
-async def video_feed():
+async def video_feed(camera_id: str = "cam1"):
     async def frame_generator():
+        frame_path = PROJECT_ROOT / "backend" / f"latest_frame_{camera_id}.jpg"
         while True:
-            detector = state.detector
-            if detector is not None and detector.running:
-                frame = detector.get_latest_frame()
-                if frame is not None:
-                    ret, jpeg = cv2.imencode('.jpg', frame)
+            use_kafka = "kafka" in state.stream_url.lower() or "cctv-frames" in state.stream_url.lower()
+            if use_kafka:
+                # Streaming JPEG langsung dari disk (ditulis oleh background consumer)
+                if frame_path.exists():
+                    try:
+                        with open(frame_path, "rb") as f:
+                            jpeg_bytes = f.read()
+                        yield (
+                            b'--frame\r\n'
+                            b'Content-Type: image/jpeg\r\n\r\n' + jpeg_bytes + b'\r\n'
+                        )
+                    except (PermissionError, FileNotFoundError):
+                        pass
+                else:
+                    # Serve blank placeholder frame while waiting for the stream
+                    blank_frame = np.zeros((540, 960, 3), dtype=np.uint8)
+                    cv2.putText(blank_frame, f"Menunggu stream {camera_id.upper()}...", (250, 270),
+                                cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+                    ret, jpeg = cv2.imencode('.jpg', blank_frame)
                     if ret:
                         yield (
                             b'--frame\r\n'
                             b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n'
                         )
-            # Sleep slightly to match standard frame rate (~25 fps)
-            await asyncio.sleep(0.04)
+            else:
+                detector = state.detector
+                if detector is not None and detector.running:
+                    frame = detector.get_latest_frame()
+                    if frame is not None:
+                        ret, jpeg = cv2.imencode('.jpg', frame)
+                        if ret:
+                            yield (
+                                b'--frame\r\n'
+                                b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n'
+                            )
+            # Sleep slightly to match standard frame rate (~20 FPS)
+            await asyncio.sleep(0.05)
 
     return StreamingResponse(
         frame_generator(),
@@ -138,9 +174,11 @@ async def video_feed():
 
 # Returns JSON snapshot of current stats, zones and logs
 @app.get("/api/snapshot")
-async def get_snapshot():
+async def get_snapshot(camera_id: str = "cam1"):
     detector_running = state.detector is not None and state.detector.running
     stream_url = state.stream_url
+    use_kafka = "kafka" in stream_url.lower() or "cctv-frames" in stream_url.lower()
+    
     capture_backend = "opencv"
     stats = {"total_tracked": 0, "stationary_count": 0, "violations_today": 0, "moving_count": 0}
     alert = None
@@ -150,59 +188,104 @@ async def get_snapshot():
 
     detector = state.detector
     if detector is not None:
-        snapshot = detector.get_snapshot()
-        capture_backend = getattr(detector, "capture_backend", "opencv")
-        stats = snapshot.get("stats", stats)
-        alert = snapshot.get("alert")
-        zone_json = snapshot.get("zone_json", "")
-        custom_zones = snapshot.get("custom_zones", False)
-        
-        # Format logs dataframe
-        logs_df = snapshot.get("logs")
-        if logs_df is not None and not logs_df.empty:
-            for _, row in logs_df.iterrows():
-                waktu_violasi = ""
-                waktu_masuk = ""
-                if pd.notnull(row.get("timestamp_violation")):
-                    ts_viol = row["timestamp_violation"]
-                    waktu_violasi = ts_viol.strftime("%Y-%m-%d %H:%M:%S") if isinstance(ts_viol, datetime) else str(ts_viol)
-                if pd.notnull(row.get("timestamp_entry")):
-                    ts_entry = row["timestamp_entry"]
-                    waktu_masuk = ts_entry.strftime("%Y-%m-%d %H:%M:%S") if isinstance(ts_entry, datetime) else str(ts_entry)
-                
-                logs_list.append({
-                    "waktu": waktu_violasi,
-                    "waktu_masuk": waktu_masuk,
-                    "durasi_detik": float(row.get("duration_seconds", 0)) if pd.notnull(row.get("duration_seconds")) else 0,
-                    "jenis_kendaraan": str(row.get("vehicle_type", "unknown")),
-                    "track_id": int(row.get("track_id", 0)) if pd.notnull(row.get("track_id")) else 0,
-                    "zona": str(row.get("zone_name", "unknown")),
-                    "screenshot": str(row.get("screenshot_path", "")),
-                })
+        if use_kafka:
+            # Di Kafka mode: Ambil stats real-time dari latest_stats.json yang diupdate oleh consumer
+            stats_path = PROJECT_ROOT / "backend" / "latest_stats.json"
+            if stats_path.exists():
+                try:
+                    with open(stats_path, "r", encoding="utf-8") as f:
+                        all_stats = json.load(f)
+                    if camera_id in all_stats:
+                        cam_data = all_stats[camera_id]
+                        stats = cam_data.get("stats", stats)
+                        alert = cam_data.get("alert")
+                        zone_json = cam_data.get("zone_json", "")
+                        custom_zones = cam_data.get("custom_zones", False)
+                except Exception as e:
+                    LOGGER.error(f"Error reading latest_stats.json: {e}")
+            
+            # Cari log pelanggaran terbaru lewat logger
+            logs_df = detector.logger.load_recent(limit=20, camera_id=camera_id)
+            stats["violations_today"] = detector.logger.today_count(camera_id)
+            
+            if logs_df is not None and not logs_df.empty:
+                for _, row in logs_df.iterrows():
+                    waktu_violasi = ""
+                    waktu_masuk = ""
+                    if pd.notnull(row.get("timestamp_violation")):
+                        ts_viol = row["timestamp_violation"]
+                        waktu_violasi = ts_viol.strftime("%Y-%m-%d %H:%M:%S") if isinstance(ts_viol, datetime) else str(ts_viol)
+                    if pd.notnull(row.get("timestamp_entry")):
+                        ts_entry = row["timestamp_entry"]
+                        waktu_masuk = ts_entry.strftime("%Y-%m-%d %H:%M:%S") if isinstance(ts_entry, datetime) else str(ts_entry)
+                    
+                    logs_list.append({
+                        "waktu": waktu_violasi,
+                        "waktu_masuk": waktu_masuk,
+                        "durasi_detik": float(row.get("duration_seconds", 0)) if pd.notnull(row.get("duration_seconds")) else 0,
+                        "jenis_kendaraan": str(row.get("vehicle_type", "unknown")),
+                        "track_id": int(row.get("track_id", 0)) if pd.notnull(row.get("track_id")) else 0,
+                        "zona": str(row.get("zone_name", "unknown")),
+                        "screenshot": str(row.get("screenshot_path", "")),
+                        "camera_id": str(row.get("camera_id", "cam1")),
+                    })
+            capture_backend = "kafka"
+        else:
+            snapshot = detector.get_snapshot()
+            capture_backend = getattr(detector, "capture_backend", "opencv")
+            stats = snapshot.get("stats", stats)
+            alert = snapshot.get("alert")
+            zone_json = snapshot.get("zone_json", "")
+            custom_zones = snapshot.get("custom_zones", False)
+            
+            # Format logs dataframe
+            logs_df = snapshot.get("logs")
+            if logs_df is not None and not logs_df.empty:
+                for _, row in logs_df.iterrows():
+                    waktu_violasi = ""
+                    waktu_masuk = ""
+                    if pd.notnull(row.get("timestamp_violation")):
+                        ts_viol = row["timestamp_violation"]
+                        waktu_violasi = ts_viol.strftime("%Y-%m-%d %H:%M:%S") if isinstance(ts_viol, datetime) else str(ts_viol)
+                    if pd.notnull(row.get("timestamp_entry")):
+                        ts_entry = row["timestamp_entry"]
+                        waktu_masuk = ts_entry.strftime("%Y-%m-%d %H:%M:%S") if isinstance(ts_entry, datetime) else str(ts_entry)
+                    
+                    logs_list.append({
+                        "waktu": waktu_violasi,
+                        "waktu_masuk": waktu_masuk,
+                        "durasi_detik": float(row.get("duration_seconds", 0)) if pd.notnull(row.get("duration_seconds")) else 0,
+                        "jenis_kendaraan": str(row.get("vehicle_type", "unknown")),
+                        "track_id": int(row.get("track_id", 0)) if pd.notnull(row.get("track_id")) else 0,
+                        "zona": str(row.get("zone_name", "unknown")),
+                        "screenshot": str(row.get("screenshot_path", "")),
+                        "camera_id": str(row.get("camera_id", "cam1")),
+                    })
     else:
-        # Load from Silver Parquet layer if detector is not running, fallback to CSV
+        # Load dari Silver Parquet layer jika detector tidak aktif
         silver_path = PROJECT_ROOT / "data" / "silver" / "violations_clean.parquet"
         logs_df = pd.DataFrame()
         if silver_path.exists():
             try:
                 logs_df = pd.read_parquet(str(silver_path))
                 if not logs_df.empty:
-                    # Make sure timestamps are correctly converted
+                    if "camera_id" in logs_df.columns:
+                        logs_df = logs_df[logs_df["camera_id"] == camera_id]
                     logs_df["timestamp_violation"] = pd.to_datetime(logs_df["timestamp_violation"])
                     logs_df["timestamp_entry"] = pd.to_datetime(logs_df["timestamp_entry"])
                     logs_df = logs_df.sort_values("timestamp_violation", ascending=False).head(20)
             except Exception as e:
                 LOGGER.error(f"Error reading silver parquet: {e}")
 
-        # Fallback to old CSV if parquet is empty/error
+        # Fallback ke CSV jika Parquet kosong/eror
         if logs_df.empty:
             from backend.logger import ViolationLogger
             logger = ViolationLogger(
                 csv_path=PROJECT_ROOT / "backend" / "violations_log.csv",
                 screenshot_dir=PROJECT_ROOT / "backend" / "violations",
             )
-            logs_df = logger.load_recent(limit=20)
-            stats["violations_today"] = logger.today_count()
+            logs_df = logger.load_recent(limit=20, camera_id=camera_id)
+            stats["violations_today"] = logger.today_count(camera_id)
             if not logs_df.empty:
                 for _, row in logs_df.iterrows():
                     waktu_violasi = str(row.get("timestamp_violation", ""))
@@ -223,10 +306,9 @@ async def get_snapshot():
                         "track_id": int(row.get("track_id", 0)),
                         "zona": str(row.get("zone_name", "unknown")),
                         "screenshot": str(row.get("screenshot_path", "")),
+                        "camera_id": str(row.get("camera_id", "cam1")),
                     })
         else:
-            # Populate logs from Silver Parquet
-            # Count violations today
             today = datetime.now().date()
             stats["violations_today"] = int((logs_df["timestamp_violation"].dt.date == today).sum())
             for _, row in logs_df.iterrows():
@@ -243,10 +325,11 @@ async def get_snapshot():
                     "track_id": int(row.get("track_id", 0)),
                     "zona": str(row.get("zone_name", "unknown")),
                     "screenshot": str(row.get("screenshot_path", "")),
+                    "camera_id": str(row.get("camera_id", "cam1")),
                 })
 
     status_str = "stopped"
-    if detector_running:
+    if detector_running or (use_kafka and state.detector is not None):
         status_str = "running"
     elif state.initializing:
         status_str = "starting"
@@ -263,7 +346,7 @@ async def get_snapshot():
     }
 
 @app.get("/api/analytics")
-async def get_analytics():
+async def get_analytics(camera_id: str = "cam1"):
     import json
     
     # 1. Try to read from the Gold Parquet files directly (Lakehouse model)
@@ -281,6 +364,16 @@ async def get_analytics():
             trend_df = pd.read_parquet(str(trend_path))
             vehicle_df = pd.read_parquet(str(vehicle_path))
             
+            # Filter dataframes per camera_id
+            if not ipi_df.empty and "camera_id" in ipi_df.columns:
+                ipi_df = ipi_df[ipi_df["camera_id"] == camera_id]
+            if not hourly_df.empty and "camera_id" in hourly_df.columns:
+                hourly_df = hourly_df[hourly_df["camera_id"] == camera_id]
+            if not trend_df.empty and "camera_id" in trend_df.columns:
+                trend_df = trend_df[trend_df["camera_id"] == camera_id]
+            if not vehicle_df.empty and "camera_id" in vehicle_df.columns:
+                vehicle_df = vehicle_df[vehicle_df["camera_id"] == camera_id]
+
             # Format hourly distribution (array of size 24)
             hourly_distribution = [0] * 24
             for _, row in hourly_df.iterrows():
@@ -352,13 +445,18 @@ async def get_analytics():
         try:
             with open(spark_json_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                data["spark_processed"] = True
-                return data
+                if camera_id in data:
+                    cam_data = data[camera_id]
+                    cam_data["spark_processed"] = True
+                    return cam_data
+                elif "total_pelanggaran" in data:
+                    # fallback if old structure
+                    data["spark_processed"] = True
+                    return data
         except Exception as e:
             LOGGER.error(f"Error reading spark analytics json: {e}")
             
     # 3. Last fallback: python/pandas processing if Spark batch hasn't run
-
     csv_path = PROJECT_ROOT / "backend" / "violations_log.csv"
     
     import random
@@ -368,6 +466,9 @@ async def get_analytics():
     if csv_path.exists():
         try:
             df = pd.read_csv(csv_path)
+            # Filter by camera_id
+            if not df.empty and "camera_id" in df.columns:
+                df = df[df["camera_id"] == camera_id]
         except Exception as e:
             LOGGER.error(f"Error reading violations log: {e}")
             
@@ -376,7 +477,6 @@ async def get_analytics():
     if not df.empty:
         df["timestamp_violation"] = pd.to_datetime(df["timestamp_violation"], errors="coerce")
         df["timestamp_entry"] = pd.to_datetime(df["timestamp_entry"], errors="coerce")
-        # Drop rows with invalid timestamps
         df = df.dropna(subset=["timestamp_violation"])
         for _, row in df.iterrows():
             real_records.append({
@@ -386,17 +486,14 @@ async def get_analytics():
                 "zone_name": str(row.get("zone_name", "right")).lower()
             })
             
-    # If the database has very few records, populate with realistic simulation data for demo purposes
     all_records = list(real_records)
     
     if len(all_records) < 15:
         today = datetime.now()
-        # Generate data for the past 4 days (including today)
         for day_offset in range(4, -1, -1):
             date_target = today - pd.Timedelta(days=day_offset)
             num_violations = random.randint(4, 7)
             for _ in range(num_violations):
-                # Peak hours logic: more likely to park during 8-10, 12-14, 17-20
                 hour_pool = [8, 9, 10, 12, 13, 14, 17, 18, 19, 20] + list(range(24))
                 hour = random.choice(hour_pool)
                 minute = random.randint(0, 59)
@@ -406,7 +503,7 @@ async def get_analytics():
                 if dt_viol > today:
                     continue
                 
-                duration = float(random.randint(120, 1800))  # 2m to 30m
+                duration = float(random.randint(120, 1800))
                 vehicle = random.choice(["mobil", "mobil", "mobil", "motor", "bus", "truk"])
                 zone = random.choice(["left", "right"])
                 
@@ -417,10 +514,8 @@ async def get_analytics():
                     "zone_name": zone
                 })
 
-    # Sort all records by timestamp
     all_records.sort(key=lambda x: x["timestamp_violation"])
     
-    # Calculate metrics grouped by zone
     zone_stats = {}
     for r in all_records:
         z = r["zone_name"].upper()
@@ -430,7 +525,6 @@ async def get_analytics():
         zone_stats[z]["total_duration"] += r["duration_seconds"]
         zone_stats[z]["durations"].append(r["duration_seconds"])
 
-    # Ensure both "LEFT" and "RIGHT" zones exist in results
     for z in ["LEFT", "RIGHT"]:
         if z not in zone_stats:
             zone_stats[z] = {"count": 0, "total_duration": 0.0, "durations": [0.0]}
@@ -440,12 +534,9 @@ async def get_analytics():
         count = data["count"]
         avg_dur = data["total_duration"] / count if count > 0 else 0.0
         
-        # Calculate Illegal Parking Index (Scale 0-10)
-        # Combine count of violations and avg duration
         idx = min(10.0, (count * 0.4) + (avg_dur / 300.0))
         idx = round(idx, 1)
         
-        # Congestion Impact Level based on index
         if idx < 3.0:
             impact_level = "RENDAH (LOW)"
             impact_desc = "Kendaraan berhenti tidak mengganggu arus lalu lintas secara signifikan."
@@ -473,17 +564,14 @@ async def get_analytics():
             "rekomendasi": recom
         })
 
-    # Overall metrics
     total_viol = len(all_records)
     avg_dur_all = sum(r["duration_seconds"] for r in all_records) / total_viol if total_viol > 0 else 0.0
     
-    # Peak Hours (0-23)
     hourly_distribution = [0] * 24
     for r in all_records:
         h = r["timestamp_violation"].hour
         hourly_distribution[h] += 1
         
-    # Find most vulnerable hour
     max_count = -1
     peak_hour = 0
     for h, count in enumerate(hourly_distribution):
@@ -492,7 +580,6 @@ async def get_analytics():
             peak_hour = h
     peak_hour_str = f"{peak_hour:02d}:00 - {(peak_hour+1)%24:02d}:00"
     
-    # Trend over time (grouped by date)
     trend_dict = {}
     for r in all_records:
         d_str = r["timestamp_violation"].strftime("%Y-%m-%d")
@@ -500,11 +587,9 @@ async def get_analytics():
             trend_dict[d_str] = 0
         trend_dict[d_str] += 1
         
-    # Convert trend dict to sorted lists
     sorted_trend_dates = sorted(trend_dict.keys())
     trend_data = [{"tanggal": d, "jumlah": trend_dict[d]} for d in sorted_trend_dates]
     
-    # Vehicle types distribution
     vehicle_counts = {}
     for r in all_records:
         vt = r["vehicle_type"].lower()
@@ -523,7 +608,6 @@ async def get_analytics():
         "analisis_zona": zone_analytics
     }
 
-
 class ControlRequest(BaseModel):
     action: str
 
@@ -539,6 +623,21 @@ async def control_system(req: ControlRequest):
         return {"status": "ok", "message": "System stopped"}
     else:
         raise HTTPException(status_code=400, detail="Invalid action")
+
+@app.post("/api/switch_camera")
+async def switch_camera(camera_id: str):
+    use_kafka = "kafka" in state.stream_url.lower() or "cctv-frames" in state.stream_url.lower()
+    if not use_kafka:
+        from backend.kafka_config import DEFAULT_STREAM_URL, DEFAULT_STREAM_URL_CAM2
+        if camera_id == "cam2":
+            state.stream_url = DEFAULT_STREAM_URL_CAM2
+        else:
+            state.stream_url = DEFAULT_STREAM_URL
+        state.start_detector(camera_id=camera_id)
+        return {"status": "ok", "message": f"Camera switched to {camera_id} in direct HLS mode"}
+    else:
+        state.active_camera_id = camera_id
+        return {"status": "ok", "message": f"Active camera changed to {camera_id} in Kafka mode"}
 
 class StreamUrlRequest(BaseModel):
     stream_url: str
@@ -588,5 +687,4 @@ app.mount("/violations", StaticFiles(directory=str(violations_dir)), name="viola
 
 if __name__ == "__main__":
     import uvicorn
-    # Allow manual starting of backend independently
     uvicorn.run(app, host="127.0.0.1", port=8080)

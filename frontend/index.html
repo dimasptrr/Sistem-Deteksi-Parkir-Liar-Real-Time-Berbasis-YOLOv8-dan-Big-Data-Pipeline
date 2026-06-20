@@ -991,8 +991,14 @@
             
             <!-- Left Side: Video Feed -->
             <div class="card" style="display: flex; flex-direction: column;">
-                <div class="card-title">
-                    <span>Live CCTV Annotated Video Feed</span>
+                <div class="card-title" style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <span>Live CCTV Annotated Video Feed</span>
+                        <select id="camera-select" style="background: rgba(15, 23, 42, 0.65); color: var(--text-primary); border: 1px solid var(--glass-border); border-radius: 8px; padding: 0.25rem 0.5rem; font-family: var(--font-family); font-size: 0.8rem; cursor: pointer; outline: none; transition: var(--transition);">
+                            <option value="cam1">Kamera 1 (Cam 1)</option>
+                            <option value="cam2">Kamera 2 (Cam 2)</option>
+                        </select>
+                    </div>
                     <span id="stream-backend-badge" class="badge-vehicle" style="font-size: 0.75rem; text-transform: uppercase;">Mencari Source...</span>
                 </div>
                 <div class="video-container">
@@ -1314,6 +1320,8 @@
         const elModalMetaLeft = document.getElementById('modal-meta-left');
         const elModalMetaRight = document.getElementById('modal-meta-right');
 
+        const elCameraSelect = document.getElementById('camera-select');
+        let activeCameraId = 'cam1';
         let isRunning = false;
         let activeStreamUrl = '';
         let lastAlert = null;
@@ -1330,6 +1338,21 @@
             elModalCloseBtn.addEventListener('click', closeModal);
             window.addEventListener('click', (e) => {
                 if (e.target === elModal) closeModal();
+            });
+
+            // Camera Select change event
+            elCameraSelect.addEventListener('change', async (e) => {
+                activeCameraId = e.target.value;
+                try {
+                    await fetch(`/api/switch_camera?camera_id=${activeCameraId}`, { method: 'POST' });
+                } catch (err) {
+                    console.error('Failed to notify backend of camera switch:', err);
+                }
+                if (isRunning) {
+                    elVideoFeed.src = `/video_feed?camera_id=${activeCameraId}&t=${Date.now()}`;
+                }
+                fetchSnapshot();
+                fetchAnalytics();
             });
 
             // Buttons Events
@@ -1349,7 +1372,7 @@
         // Fetch snapshot from FastAPI API
         async function fetchSnapshot() {
             try {
-                const response = await fetch('/api/snapshot');
+                const response = await fetch(`/api/snapshot?camera_id=${activeCameraId}`);
                 if (!response.ok) throw new Error('Network error fetching snapshot');
                 const data = await response.json();
                 
@@ -1369,8 +1392,13 @@
                     if (elVideoFeed.style.display === 'none') {
                         elVideoPlaceholder.style.display = 'none';
                         elVideoFeed.style.display = 'block';
-                        // Add timestamp query parameter to bypass cache and start streaming
-                        elVideoFeed.src = `/video_feed?t=${Date.now()}`;
+                        elVideoFeed.src = `/video_feed?camera_id=${activeCameraId}&t=${Date.now()}`;
+                    } else {
+                        // Check if the current src matches the active camera_id
+                        const currentSrc = elVideoFeed.src;
+                        if (!currentSrc || !currentSrc.includes(`camera_id=${activeCameraId}`)) {
+                            elVideoFeed.src = `/video_feed?camera_id=${activeCameraId}&t=${Date.now()}`;
+                        }
                     }
                 } else if (data.status === 'starting') {
                     elStatusBadge.className = 'badge-status';
@@ -1652,7 +1680,7 @@
         // Fetch analytics from API
         async function fetchAnalytics() {
             try {
-                const response = await fetch('/api/analytics');
+                const response = await fetch(`/api/analytics?camera_id=${activeCameraId}`);
                 if (!response.ok) throw new Error('Failed to fetch analytics');
                 const data = await response.json();
                 

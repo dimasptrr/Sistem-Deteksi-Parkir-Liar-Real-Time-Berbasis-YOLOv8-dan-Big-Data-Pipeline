@@ -57,9 +57,26 @@ def main():
         default=KAFKA_TOPIC,
         help="Nama Kafka topic"
     )
+    parser.add_argument(
+        "--camera_id",
+        type=str,
+        default="cam1",
+        help="Identifier kamera (cam1/cam2)"
+    )
     args = parser.parse_args()
 
-    LOGGER.info(f"Memulai Kafka Producer dengan Broker: {args.broker}, Topic: {args.topic}")
+    # Auto-map topic based on camera_id if default topic is used
+    if args.topic == KAFKA_TOPIC:
+        if args.camera_id == "cam2":
+            args.topic = "cctv-frames-cam2"
+            if args.stream_url == DEFAULT_STREAM_URL:
+                # Import here to avoid circular dependencies
+                from backend.kafka_config import DEFAULT_STREAM_URL_CAM2
+                args.stream_url = DEFAULT_STREAM_URL_CAM2
+        else:
+            args.topic = "cctv-frames-cam1"
+
+    LOGGER.info(f"Memulai Kafka Producer dengan Broker: {args.broker}, Topic: {args.topic}, Camera ID: {args.camera_id}")
     LOGGER.info(f"Membuka stream CCTV: {args.stream_url}")
 
     # Mengimpor confluent_kafka di sini agar tidak gagal jika dependency belum diinstal
@@ -119,7 +136,8 @@ def main():
                 "width": width,
                 "height": height,
                 "stream_url": args.stream_url,
-                "frame_data": frame_base64
+                "frame_data": frame_base64,
+                "camera_id": args.camera_id
             }
 
             payload_bytes = json.dumps(payload).encode('utf-8')

@@ -1,84 +1,182 @@
 {
-  "status": "success",
-  "spark_processed": true,
-  "total_pelanggaran": 60,
-  "durasi_rata_detik_total": 683.7,
-  "jam_rawan": "19:00 - 20:00",
-  "jam_rawan_jam": 19,
-  "distribusi_jam": [
-    2,
-    2,
-    2,
-    2,
-    0,
-    3,
-    1,
-    1,
-    3,
-    5,
-    2,
-    0,
-    5,
-    5,
-    2,
-    1,
-    0,
-    2,
-    5,
-    8,
-    6,
-    0,
-    2,
-    1
-  ],
-  "distribusi_kendaraan": {
-    "bus": 10,
-    "mobil": 26,
-    "truk": 8,
-    "motor": 16
+  "cam1": {
+    "status": "success",
+    "spark_processed": true,
+    "total_pelanggaran": 107,
+    "durasi_rata_detik_total": 624.1,
+    "jam_rawan": "17:00 - 18:00",
+    "jam_rawan_jam": 17,
+    "distribusi_jam": [
+      1,
+      2,
+      3,
+      1,
+      1,
+      1,
+      1,
+      1,
+      8,
+      4,
+      6,
+      9,
+      9,
+      7,
+      7,
+      3,
+      3,
+      11,
+      6,
+      9,
+      7,
+      4,
+      2,
+      1
+    ],
+    "distribusi_kendaraan": {
+      "bus": 9,
+      "mobil": 69,
+      "motor": 18,
+      "truk": 11
+    },
+    "tren_pelanggaran": [
+      {
+        "tanggal": "2026-06-13",
+        "jumlah": 15
+      },
+      {
+        "tanggal": "2026-06-14",
+        "jumlah": 7
+      },
+      {
+        "tanggal": "2026-06-15",
+        "jumlah": 9
+      },
+      {
+        "tanggal": "2026-06-16",
+        "jumlah": 17
+      },
+      {
+        "tanggal": "2026-06-17",
+        "jumlah": 19
+      },
+      {
+        "tanggal": "2026-06-18",
+        "jumlah": 11
+      },
+      {
+        "tanggal": "2026-06-19",
+        "jumlah": 18
+      },
+      {
+        "tanggal": "2026-06-20",
+        "jumlah": 11
+      }
+    ],
+    "analisis_zona": [
+      {
+        "zona": "LEFT",
+        "jumlah_pelanggaran": 55,
+        "durasi_rata_detik": 771.7,
+        "indeks_parkir_liar": 10.0,
+        "dampak_kemacetan": "TINGGI (HIGH)",
+        "dampak_deskripsi": "Penyumbatan parah lajur jalan, memicu kemacetan ekor panjang di jam-jam sibuk.",
+        "prioritas_penanganan": "TINGGI",
+        "rekomendasi": "Lakukan penertiban/derek langsung, pasang pembatas fisik (bollard atau guardrail) untuk mencegah parkir."
+      },
+      {
+        "zona": "RIGHT",
+        "jumlah_pelanggaran": 52,
+        "durasi_rata_detik": 468.0,
+        "indeks_parkir_liar": 10.0,
+        "dampak_kemacetan": "TINGGI (HIGH)",
+        "dampak_deskripsi": "Penyumbatan parah lajur jalan, memicu kemacetan ekor panjang di jam-jam sibuk.",
+        "prioritas_penanganan": "TINGGI",
+        "rekomendasi": "Lakukan penertiban/derek langsung, pasang pembatas fisik (bollard atau guardrail) untuk mencegah parkir."
+      }
+    ]
   },
-  "tren_pelanggaran": [
-    {
-      "tanggal": "2026-06-14",
-      "jumlah": 11
+  "cam2": {
+    "status": "success",
+    "spark_processed": true,
+    "total_pelanggaran": 30,
+    "durasi_rata_detik_total": 590.5,
+    "jam_rawan": "18:00 - 19:00",
+    "jam_rawan_jam": 18,
+    "distribusi_jam": [
+      1,
+      1,
+      2,
+      1,
+      0,
+      2,
+      1,
+      1,
+      2,
+      2,
+      0,
+      0,
+      1,
+      2,
+      1,
+      0,
+      0,
+      1,
+      5,
+      2,
+      3,
+      0,
+      1,
+      1
+    ],
+    "distribusi_kendaraan": {
+      "bus": 6,
+      "mobil": 11,
+      "motor": 9,
+      "truk": 4
     },
-    {
-      "tanggal": "2026-06-15",
-      "jumlah": 12
-    },
-    {
-      "tanggal": "2026-06-16",
-      "jumlah": 16
-    },
-    {
-      "tanggal": "2026-06-17",
-      "jumlah": 8
-    },
-    {
-      "tanggal": "2026-06-18",
-      "jumlah": 13
-    }
-  ],
-  "analisis_zona": [
-    {
-      "zona": "LEFT",
-      "jumlah_pelanggaran": 32,
-      "durasi_rata_detik": 767.5,
-      "indeks_parkir_liar": 10.0,
-      "dampak_kemacetan": "TINGGI (HIGH)",
-      "dampak_deskripsi": "Penyumbatan parah lajur jalan, memicu kemacetan ekor panjang di jam-jam sibuk.",
-      "prioritas_penanganan": "TINGGI",
-      "rekomendasi": "Lakukan penertiban/derek langsung, pasang pembatas fisik (bollard atau guardrail) untuk mencegah parkir."
-    },
-    {
-      "zona": "RIGHT",
-      "jumlah_pelanggaran": 28,
-      "durasi_rata_detik": 587.9,
-      "indeks_parkir_liar": 10.0,
-      "dampak_kemacetan": "TINGGI (HIGH)",
-      "dampak_deskripsi": "Penyumbatan parah lajur jalan, memicu kemacetan ekor panjang di jam-jam sibuk.",
-      "prioritas_penanganan": "TINGGI",
-      "rekomendasi": "Lakukan penertiban/derek langsung, pasang pembatas fisik (bollard atau guardrail) untuk mencegah parkir."
-    }
-  ]
+    "tren_pelanggaran": [
+      {
+        "tanggal": "2026-06-16",
+        "jumlah": 3
+      },
+      {
+        "tanggal": "2026-06-17",
+        "jumlah": 6
+      },
+      {
+        "tanggal": "2026-06-18",
+        "jumlah": 7
+      },
+      {
+        "tanggal": "2026-06-19",
+        "jumlah": 5
+      },
+      {
+        "tanggal": "2026-06-20",
+        "jumlah": 9
+      }
+    ],
+    "analisis_zona": [
+      {
+        "zona": "LEFT",
+        "jumlah_pelanggaran": 15,
+        "durasi_rata_detik": 693.0,
+        "indeks_parkir_liar": 8.3,
+        "dampak_kemacetan": "TINGGI (HIGH)",
+        "dampak_deskripsi": "Penyumbatan parah lajur jalan, memicu kemacetan ekor panjang di jam-jam sibuk.",
+        "prioritas_penanganan": "TINGGI",
+        "rekomendasi": "Lakukan penertiban/derek langsung, pasang pembatas fisik (bollard atau guardrail) untuk mencegah parkir."
+      },
+      {
+        "zona": "RIGHT",
+        "jumlah_pelanggaran": 15,
+        "durasi_rata_detik": 488.0,
+        "indeks_parkir_liar": 7.6,
+        "dampak_kemacetan": "TINGGI (HIGH)",
+        "dampak_deskripsi": "Penyumbatan parah lajur jalan, memicu kemacetan ekor panjang di jam-jam sibuk.",
+        "prioritas_penanganan": "TINGGI",
+        "rekomendasi": "Lakukan penertiban/derek langsung, pasang pembatas fisik (bollard atau guardrail) untuk mencegah parkir."
+      }
+    ]
+  }
 }

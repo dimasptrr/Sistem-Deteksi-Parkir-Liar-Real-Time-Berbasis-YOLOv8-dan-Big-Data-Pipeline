@@ -1,0 +1,27 @@
+# Virtual environment
+.venv/
+venv/
+env/
+ENV/
+
+# Python cache and temporary files
+__pycache__/
+*.py[cod]
+*$py.class
+*.log
+
+# Project-specific local files / logs
+hs_err_pid*.log
+backend/violations/*.jpg
+backend/violations/*.png
+backend/latest_stats.json
+
+# Local Data Lakehouse folders
+data/
+
+# Model weights
+yolov8n.pt
+
+# IDE configurations
+.vscode/
+.idea/
